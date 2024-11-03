@@ -70,6 +70,11 @@ const TokenIterator = struct {
         return self.current_index < self.source.len;
     }
 
+    fn peek(self: *Self) ?u8 {
+        if (!self.is_in_bounds()) return null;
+        return self.source[self.current_index];
+    }
+
     fn advance(self: *Self) void {
         self.current_index += 1;
         self.byte_offset += 1;
@@ -187,7 +192,7 @@ const TokenIterator = struct {
             },
             '#' => {
                 const start_index = self.current_index;
-                while (self.is_in_bounds() and self.source[self.current_index] != '\n') : (self.advance()) {}
+                while (self.peek() != '\n') : (self.advance()) {}
                 return self.make_token(
                     .comment,
                     start_index,
@@ -202,30 +207,39 @@ const TokenIterator = struct {
                     start_index,
                 );
             },
-            '+', '-', '&', '|', '<', '>', '=', '!', '~' => {
+            '+', '&', '|', '^', '<', '>', '=', '!', '~' => {
                 const start_index = self.current_index;
                 self.advance();
-                if (self.is_in_bounds() and self.source[self.current_index] == '=') self.advance();
+                if (self.peek() == '=') self.advance();
                 return self.make_token(.op, start_index);
             },
             '/' => {
                 const start_index = self.current_index;
                 self.advance();
-                if (self.is_in_bounds() and self.source[self.current_index] == '/') self.advance();
-                if (self.is_in_bounds() and self.source[self.current_index] == '=') self.advance();
+                if (self.peek() == '/') self.advance();
+                if (self.peek() == '=') self.advance();
                 return self.make_token(.op, start_index);
             },
             '*' => {
                 const start_index = self.current_index;
                 self.advance();
-                if (self.is_in_bounds() and self.source[self.current_index] == '*') self.advance();
-                if (self.is_in_bounds() and self.source[self.current_index] == '=') self.advance();
+                if (self.peek() == '*') self.advance();
+                if (self.peek() == '=') self.advance();
                 return self.make_token(.op, start_index);
             },
-            ';' => {
+            '-' => {
+                const start_index = self.current_index;
+                self.advance();
+                if (self.peek() == '>') self.advance();
+                return self.make_token(
+                    .op,
+                    start_index,
+                );
+            },
+            ',', ':', ';' => {
                 self.advance();
                 return self.make_token(
-                    .semicolon,
+                    .op,
                     self.current_index - 1,
                 );
             },
@@ -320,7 +334,14 @@ const TokenIterator = struct {
                     start_index,
                 );
             },
-            else => return error.NotImplemented,
+            else => {
+                // std.debug.print("Unsupported token at {d}:{d}: {c}\n", .{
+                //     self.line_number,
+                //     self.byte_offset,
+                //     self.source[self.current_index],
+                // });
+                return error.NotImplemented;
+            },
         }
     }
 };
