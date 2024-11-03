@@ -34,6 +34,12 @@ pub const Token = struct {
     const Self = @This();
 
     fn to_byte_slice(self: *const Self, source: []const u8) []const u8 {
+        // Newline at end of file may not exist in the file
+        if (self.type == .newline and self.start_index == source.len and self.end_index == source.len + 1)
+            return "\n";
+        // Endmarkers are out of bound too
+        if (self.type == .endmarker)
+            return "";
         return source[self.start_index..self.end_index];
     }
 };
@@ -49,6 +55,10 @@ const TokenIterator = struct {
     byte_offset: u32 = 0,
 
     const Self = @This();
+
+    fn is_in_bounds(self: *Self) bool {
+        return self.current_index < self.source.len;
+    }
 
     fn advance(self: *Self) void {
         self.current_index += 1;
@@ -73,38 +83,57 @@ const TokenIterator = struct {
         };
     }
 
-    pub fn next(self: *Self) ?Token {
-        if (self.current_index > self.source.len) return null;
+    fn newline(self: *Self) Token {
+        self.advance();
+        const token = self.make_token(.newline, self.current_index - 1);
+        self.line_number += 1;
+        self.byte_offset = 0;
+        return token;
+    }
+
+    fn endmarker(self: *Self) Token {
+        const token = self.make_token(.endmarker, self.current_index);
+        return token;
+    }
+
+    pub fn next(self: *Self) !Token {
         if (self.current_index == self.source.len) {
-            const token = self.make_token(.endmarker, self.current_index);
-            self.advance();
-            return token;
+            if (self.source[self.current_index - 1] != '\n') {
+                return self.newline();
+            } else {
+                return self.endmarker();
+            }
+        }
+        if (self.current_index > self.source.len) {
+            return self.endmarker();
         }
 
         const current_char = self.source[self.current_index];
         switch (current_char) {
             '\n' => {
-                self.advance();
-                const token = self.make_token(.newline, self.current_index - 1);
-                self.line_number += 1;
-                self.byte_offset = 0;
-                return token;
+                return self.newline();
             },
             // TODO: handle indentation
             ' ', '\r', '\t', '\x0b', '\x0c' => {
                 const start_index = self.current_index;
-                while (is_whitespace(self.source[self.current_index])) : (self.advance()) {}
+                while (self.is_in_bounds() and is_whitespace(self.source[self.current_index])) : (self.advance()) {}
                 return self.make_token(
                     .whitespace,
                     start_index,
                 );
             },
-            '=' => {
+            '+', '-', '*', '&', '|', '=' => {
+                const start_index = self.current_index;
                 self.advance();
-                return self.make_token(
-                    .op,
-                    self.current_index - 1,
-                );
+                if (self.is_in_bounds() and self.source[self.current_index] == '=') self.advance();
+                return self.make_token(.op, start_index);
+            },
+            '/' => {
+                const start_index = self.current_index;
+                self.advance();
+                if (self.is_in_bounds() and self.source[self.current_index] == '/') self.advance();
+                if (self.is_in_bounds() and self.source[self.current_index] == '=') self.advance();
+                return self.make_token(.op, start_index);
             },
             '(' => {
                 self.advance();
@@ -122,7 +151,7 @@ const TokenIterator = struct {
             },
             '0'...'9' => {
                 const start_index = self.current_index;
-                while (std.ascii.isDigit(self.source[self.current_index])) : (self.advance()) {}
+                while (self.is_in_bounds() and std.ascii.isDigit(self.source[self.current_index])) : (self.advance()) {}
                 return self.make_token(
                     .number,
                     start_index,
@@ -131,8 +160,9 @@ const TokenIterator = struct {
             // TODO: unicode identifier
             'A'...'Z', 'a'...'z', '_' => {
                 const start_index = self.current_index;
-                while (std.ascii.isAlphanumeric(self.source[self.current_index]) or
-                    self.source[self.current_index] == '_') : (self.advance())
+                while (self.is_in_bounds() and
+                    (std.ascii.isAlphanumeric(self.source[self.current_index]) or
+                    self.source[self.current_index] == '_')) : (self.advance())
                 {}
 
                 return self.make_token(
@@ -140,7 +170,7 @@ const TokenIterator = struct {
                     start_index,
                 );
             },
-            else => unreachable,
+            else => return error.NotImplemented,
         }
     }
 };
@@ -159,9 +189,14 @@ test tokenize {
     var token_list = std.ArrayList(Token).init(std.testing.allocator);
     defer token_list.deinit();
 
-    while (token_iterator.next()) |token| {
+    while (true) {
+        const token = try token_iterator.next();
         try token_list.append(token);
+        if (token.type == .endmarker) break;
     }
+    // for (token_list.items) |token| {
+    //     if (token.type != .whitespace) std.debug.print("{s} {any}\n", .{ token.to_byte_slice(source), token });
+    // }
 
     const expected_tokens = [_]struct { TokenType, []const u8 }{
         .{ .name, "x" },
@@ -174,71 +209,12 @@ test tokenize {
         .{ .lparen, "(" },
         .{ .name, "x" },
         .{ .rparen, ")" },
+        .{ .newline, "\n" },
         .{ .endmarker, "" },
     };
     for (token_list.items, expected_tokens) |token, expected| {
         const expected_type, const expected_value = expected;
         try std.testing.expectEqual(expected_type, token.type);
         try std.testing.expectEqualStrings(expected_value, token.to_byte_slice(source));
-    }
-}
-
-const PyToken = struct {
-    type: []const u8,
-    start: struct { u32, u32 },
-    end: struct { u32, u32 },
-};
-
-fn to_py_token(al: std.mem.Allocator, token: Token) !PyToken {
-    const py_token_type = try if (token.type.is_operator())
-        al.dupe(u8, "OP")
-    else
-        std.ascii.allocUpperString(al, @tagName(token.type));
-
-    return PyToken{
-        .type = py_token_type,
-        .start = .{ token.line_number, token.byte_offset },
-        .end = .{ token.line_number, token.byte_offset + (token.end_index - token.start_index) },
-    };
-}
-
-test "tokenize but subprocess" {
-    const source = @embedFile("./test_files/tokenize_test.py");
-    var tokens = tokenize(source);
-    var py_tokens = std.ArrayList(PyToken).init(std.testing.allocator);
-    defer {
-        for (py_tokens.items) |py_token| {
-            std.testing.allocator.free(py_token.type);
-        }
-        py_tokens.deinit();
-    }
-
-    while (tokens.next()) |token| {
-        if (token.type == .whitespace) continue;
-        try py_tokens.append(try to_py_token(std.testing.allocator, token));
-    }
-
-    var env_map = try std.process.getEnvMap(std.testing.allocator);
-    defer env_map.deinit();
-
-    const result = try std.process.Child.run(.{
-        .allocator = std.testing.allocator,
-        .argv = &.{
-            "python3",
-            "./simpler_tokenizer.py",
-            "./src/test_files/tokenize_test.py",
-        },
-        .env_map = &env_map,
-    });
-    defer std.testing.allocator.free(result.stdout);
-    defer std.testing.allocator.free(result.stderr);
-
-    try std.testing.expectEqual(0, result.term.Exited);
-    const expected_py_tokens = try std.json.parseFromSlice([]PyToken, std.testing.allocator, result.stdout, .{});
-    defer expected_py_tokens.deinit();
-
-    for (py_tokens.items, expected_py_tokens.value) |py_token, expected_py_token| {
-        try std.testing.expectEqualStrings(expected_py_token.type, py_token.type);
-        try std.testing.expectEqualDeep(expected_py_token, py_token);
     }
 }

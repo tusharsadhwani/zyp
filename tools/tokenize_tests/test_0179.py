@@ -1,0 +1,2 @@
+Örter = 'places'
+grün = 'green'

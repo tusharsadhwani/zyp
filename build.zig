@@ -29,12 +29,33 @@ pub fn build(b: *std.Build) void {
     // running `zig build`).
     b.installArtifact(lib);
 
+    const zyp = b.addModule("zyp", .{ .root_source_file = b.path("src/root.zig") });
+
     const exe = b.addExecutable(.{
         .name = "zyp",
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
+    exe.root_module.addImport("zyp", zyp);
+
+    {
+        const test_suite = b.addExecutable(.{
+            .name = "test_suite",
+            .root_source_file = b.path("tools/test_suite.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+
+        test_suite.root_module.addImport("zyp", zyp);
+        const test_suite_cmd = b.addRunArtifact(test_suite);
+
+        const test_runner_step = b.step("test_suite", "Run the Python test suite");
+        test_runner_step.dependOn(&test_suite_cmd.step);
+        if (b.args) |args| {
+            test_suite_cmd.addArgs(args);
+        }
+    }
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
@@ -71,6 +92,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    lib_unit_tests.root_module.addImport("zyp", zyp);
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
@@ -79,6 +101,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    exe_unit_tests.root_module.addImport("zyp", zyp);
 
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
 
