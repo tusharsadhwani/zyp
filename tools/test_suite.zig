@@ -57,7 +57,25 @@ fn check(allocator: std.mem.Allocator, file_path: []const u8, source: []const u8
     const expected_py_tokens = try std.json.parseFromSlice([]PyToken, allocator, result.stdout, .{});
     defer expected_py_tokens.deinit();
 
-    if (expected_py_tokens.value.len != py_tokens.items.len) return error.DifferentLengths;
+    if (expected_py_tokens.value.len != py_tokens.items.len) {
+        if (debug) {
+            std.debug.print("--- expected:\n", .{});
+            for (expected_py_tokens.value) |expected_py_token|
+                std.debug.print("{s} {any} {any}\n", .{
+                    expected_py_token.type,
+                    expected_py_token.start,
+                    expected_py_token.end,
+                });
+            std.debug.print("--- got:\n", .{});
+            for (py_tokens.items) |py_token|
+                std.debug.print("{s} {any} {any}\n", .{
+                    py_token.type,
+                    py_token.start,
+                    py_token.end,
+                });
+        }
+        return error.DifferentLengths;
+    }
     for (py_tokens.items, expected_py_tokens.value) |py_token, expected_py_token| {
         if (debug)
             std.debug.print("EXPECTED {s} {any} {any} - GOT {s} {any} {any}\n", .{
@@ -160,7 +178,8 @@ pub fn main() !u8 {
 
         const file_path = try std.fs.path.join(allocator, &.{ dir_path, file_name });
         defer allocator.free(file_path);
-        check(allocator, file_path, source, single_run) catch {
+        check(allocator, file_path, source, single_run) catch |err| {
+            if (single_run) return err;
             std.debug.print("\x1b[1;31mF\x1b[m", .{});
             try test_results.put(file_name, .{ .bool = false });
             failed = true;
@@ -240,6 +259,9 @@ pub fn main() !u8 {
             "\x1b[1;32mSummary: {d} Passed, {d} Failed, {any} Regressed\x1b[m\n",
             .{ test_results.count() - failed_tests.items.len, failed_tests.items.len, if (regressions) |reg| reg.items.len else null },
         );
+        if (regressions) |reg| if (reg.items.len > 0) {
+            std.debug.print("\x1b[1;31mREGRESSIONS FOUND\x1b[m\n", .{});
+        };
     }
 
     return if (failed) 1 else 0;
