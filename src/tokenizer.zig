@@ -19,6 +19,8 @@ pub const TokenType = enum(u8) {
 
     name,
     number,
+    string,
+
     endmarker,
 
     const Self = @This();
@@ -60,6 +62,8 @@ const TokenIterator = struct {
     current_index: u32 = 0,
     line_number: u32 = 1,
     byte_offset: u32 = 0,
+    prev_line_number: u32 = 1,
+    prev_byte_offset: u32 = 0,
 
     bracket_level: u32 = 0,
     prev_token: ?Token = null,
@@ -80,23 +84,46 @@ const TokenIterator = struct {
         self.byte_offset += 1;
     }
 
+    fn advance_check_newline(self: *Self) void {
+        if (self.peek() == '\n') {
+            self.current_index += 1;
+            self.line_number += 1;
+            self.byte_offset = 0;
+        } else {
+            self.advance();
+        }
+    }
+
+    fn match(self: *Self, options: []const []const u8) bool {
+        for (options) |option| {
+            if (self.current_index + option.len >= self.source.len) continue;
+            if (std.ascii.eqlIgnoreCase(option, self.source[self.current_index .. self.current_index + option.len])) return true;
+        }
+        return false;
+    }
+
     fn make_token(self: *Self, tok_type: TokenType, start_index: u32) Token {
-        // std.debug.print("{any} {d} {d} {d} {d} {d}\n", .{
+        // std.debug.print("{any} {d} {d} {d} {d}\n", .{
         //     tok_type,
         //     start_index,
         //     self.current_index,
         //     self.line_number,
         //     self.byte_offset,
-        //     (self.current_index - start_index),
         // });
         const token = Token{
             .type = tok_type,
             .start_index = start_index,
             .end_index = self.current_index,
-            .line_number = self.line_number,
-            .byte_offset = self.byte_offset - (self.current_index - start_index),
+            .line_number = self.prev_line_number,
+            .byte_offset = self.prev_byte_offset,
         };
+        if (tok_type == .newline or tok_type == .nl) {
+            self.line_number += 1;
+            self.byte_offset = 0;
+        }
         self.prev_token = token;
+        self.prev_line_number = self.line_number;
+        self.prev_byte_offset = self.byte_offset;
         return token;
     }
 
@@ -111,8 +138,6 @@ const TokenIterator = struct {
             .newline;
 
         const token = self.make_token(token_type, self.current_index - 1);
-        self.line_number += 1;
-        self.byte_offset = 0;
         return token;
     }
 
@@ -123,7 +148,7 @@ const TokenIterator = struct {
 
     fn decimal(self: *Self) Token {
         const start_index = self.current_index;
-        while (self.is_in_bounds() and std.ascii.isDigit(self.source[self.current_index])) : (self.advance()) {}
+        while (self.is_in_bounds() and std.ascii.isDigit(self.source[self.current_index])) self.advance();
         return self.make_token(
             .number,
             start_index,
@@ -136,8 +161,7 @@ const TokenIterator = struct {
         self.advance();
         self.advance();
         while (self.is_in_bounds() and
-            self.source[self.current_index] == '0' or self.source[self.current_index] == '1') : (self.advance())
-        {}
+            self.source[self.current_index] == '0' or self.source[self.current_index] == '1') self.advance();
         return self.make_token(
             .number,
             start_index,
@@ -150,8 +174,7 @@ const TokenIterator = struct {
         self.advance();
         self.advance();
         while (self.is_in_bounds() and
-            self.source[self.current_index] >= '0' and self.source[self.current_index] <= '7') : (self.advance())
-        {}
+            self.source[self.current_index] >= '0' and self.source[self.current_index] <= '7') self.advance();
         return self.make_token(
             .number,
             start_index,
@@ -164,12 +187,63 @@ const TokenIterator = struct {
         self.advance();
         self.advance();
         while (self.is_in_bounds() and
-            std.ascii.isHex(self.source[self.current_index])) : (self.advance())
-        {}
+            std.ascii.isHex(self.source[self.current_index])) self.advance();
         return self.make_token(
             .number,
             start_index,
         );
+    }
+
+    fn string_prefix_and_quotes(self: *Self) !struct { []const u8, []const u8 } {
+        const rest_source = self.source[self.current_index..];
+        const quote_index = self.current_index +
+            if (std.mem.indexOf(u8, rest_source, "'")) |idx|
+            idx
+        else
+            std.mem.indexOf(u8, rest_source, "\"") orelse
+                @panic("No quote found somehow??");
+
+        const prefix = self.source[self.current_index..quote_index];
+        const quote_char = self.source[quote_index];
+
+        // Check for triple quotes
+        const quote = if (quote_index + 2 <= self.source.len and
+            self.source[quote_index + 1] == quote_char and
+            self.source[quote_index + 2] == quote_char)
+            self.source[quote_index .. quote_index + 3]
+        else
+            self.source[quote_index .. quote_index + 1];
+
+        return .{ prefix, quote };
+    }
+
+    fn string(self: *Self) !Token {
+        const start_index = self.current_index;
+
+        const prefix, const quote = try self.string_prefix_and_quotes();
+        for (0..prefix.len) |_| self.advance();
+        for (0..quote.len) |_| self.advance();
+
+        while (self.is_in_bounds()) {
+            const char = self.source[self.current_index];
+            // Handle escapes
+            if (char == '\\') {
+                self.advance();
+                self.advance_check_newline();
+                continue;
+            }
+
+            // Find closing quote
+            if (self.current_index + quote.len <= self.source.len and
+                std.mem.eql(u8, self.source[self.current_index .. self.current_index + quote.len], quote))
+            {
+                for (0..quote.len) |_| self.advance();
+                return self.make_token(.string, start_index);
+            }
+            self.advance_check_newline();
+        }
+
+        return error.UnexpectedEOF;
     }
 
     pub fn next(self: *Self) !Token {
@@ -192,7 +266,7 @@ const TokenIterator = struct {
             },
             '#' => {
                 const start_index = self.current_index;
-                while (self.peek() != '\n') : (self.advance()) {}
+                while (self.peek() != '\n') self.advance();
                 return self.make_token(
                     .comment,
                     start_index,
@@ -201,7 +275,7 @@ const TokenIterator = struct {
             // TODO: handle indentation
             ' ', '\r', '\t', '\x0b', '\x0c' => {
                 const start_index = self.current_index;
-                while (self.is_in_bounds() and is_whitespace(self.source[self.current_index])) : (self.advance()) {}
+                while (self.is_in_bounds() and is_whitespace(self.source[self.current_index])) self.advance();
                 return self.make_token(
                     .whitespace,
                     start_index,
@@ -245,7 +319,7 @@ const TokenIterator = struct {
             },
             '.' => {
                 self.advance();
-                if (self.current_index + 2 < self.source.len and
+                if (self.current_index + 2 <= self.source.len and
                     std.ascii.eqlIgnoreCase(self.source[self.current_index .. self.current_index + 2], "0b"))
                 {
                     self.advance();
@@ -305,15 +379,15 @@ const TokenIterator = struct {
                 );
             },
             '0'...'9' => {
-                if (self.current_index + 2 < self.source.len and
+                if (self.current_index + 2 <= self.source.len and
                     std.ascii.eqlIgnoreCase(self.source[self.current_index .. self.current_index + 2], "0b"))
                 {
                     return self.binary();
-                } else if (self.current_index + 2 < self.source.len and
+                } else if (self.current_index + 2 <= self.source.len and
                     std.ascii.eqlIgnoreCase(self.source[self.current_index .. self.current_index + 2], "0o"))
                 {
                     return self.octal();
-                } else if (self.current_index + 2 < self.source.len and
+                } else if (self.current_index + 2 <= self.source.len and
                     std.ascii.eqlIgnoreCase(self.source[self.current_index .. self.current_index + 2], "0x"))
                 {
                     return self.hexadecimal();
@@ -323,11 +397,17 @@ const TokenIterator = struct {
             },
             // TODO: unicode identifier
             'A'...'Z', 'a'...'z', '_' => {
+                if ((self.current_index + 1 <= self.source.len and self.match(&.{ "\"", "'" })) or
+                    (self.current_index + 2 <= self.source.len and
+                    self.match(&.{ "b\"", "b'", "r\"", "r'", "f\"", "f'", "u\"", "u'" })) or
+                    (self.current_index + 3 <= self.source.len and
+                    self.match(&.{ "br\"", "br'", "rb\"", "rb'", "fr\"", "fr'", "rf\"", "rf'" })))
+                    return try self.string();
+
                 const start_index = self.current_index;
                 while (self.is_in_bounds() and
                     (std.ascii.isAlphanumeric(self.source[self.current_index]) or
-                    self.source[self.current_index] == '_')) : (self.advance())
-                {}
+                    self.source[self.current_index] == '_')) self.advance();
 
                 return self.make_token(
                     .name,

@@ -181,12 +181,14 @@ pub fn main() !u8 {
         check(allocator, file_path, source, single_run) catch |err| {
             if (single_run) return err;
             std.debug.print("\x1b[1;31mF\x1b[m", .{});
+            // std.debug.print(" - {s}\n", .{file_name});
             try test_results.put(file_name, .{ .bool = false });
             failed = true;
             continue;
         };
         try test_results.put(file_name, .{ .bool = true });
         std.debug.print("\x1b[1;32m.\x1b[m", .{});
+        // std.debug.print(" - {s}\n", .{file_name});
     }
     std.debug.print("\n", .{});
 
