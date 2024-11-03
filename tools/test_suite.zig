@@ -21,6 +21,11 @@ fn to_py_token(al: std.mem.Allocator, token: tokenizer.Token) !PyToken {
     };
 }
 
+const TestResult = struct {
+    test_name: []const u8,
+    passed: bool,
+};
+
 fn check(allocator: std.mem.Allocator, file_path: []const u8, source: []const u8, debug: bool) !void {
     var tokens = tokenizer.tokenize(source);
     var py_tokens = std.ArrayList(PyToken).init(allocator);
@@ -97,7 +102,7 @@ pub fn main() !u8 {
         break :blk null;
     };
     // Print debug info when a specific test is run
-    const print_debug_info = test_number_arg != null;
+    const single_run = test_number_arg != null;
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer std.debug.assert(gpa.deinit() == .ok);
@@ -140,6 +145,9 @@ pub fn main() !u8 {
         try test_file_names.append(file_name);
     }
 
+    var test_results = std.ArrayList(TestResult).init(allocator);
+    defer test_results.deinit();
+
     var failed = false;
     for (test_file_names.items) |file_name| {
         const source = try test_suite_dir.readFileAlloc(
@@ -151,13 +159,31 @@ pub fn main() !u8 {
 
         const file_path = try std.fs.path.join(allocator, &.{ dir_path, file_name });
         defer allocator.free(file_path);
-        check(allocator, file_path, source, print_debug_info) catch {
+        check(allocator, file_path, source, single_run) catch {
             std.debug.print("\x1b[1;31mF\x1b[m", .{});
+            try test_results.append(.{ .test_name = file_name, .passed = false });
             failed = true;
             continue;
         };
+        try test_results.append(.{ .test_name = file_name, .passed = true });
         std.debug.print("\x1b[1;32m.\x1b[m", .{});
     }
     std.debug.print("\n", .{});
+
+    if (!single_run) {
+        const result_filepath = try std.fs.path.join(
+            allocator,
+            &.{ dir_path, "test_suite_last_result.json" },
+        );
+        defer allocator.free(result_filepath);
+        const result_file = try std.fs.cwd().createFile(result_filepath, .{});
+        defer result_file.close();
+        try std.json.stringify(
+            test_results.items,
+            .{ .whitespace = .indent_2 },
+            result_file.writer(),
+        );
+    }
+
     return if (failed) 1 else 0;
 }
