@@ -16,8 +16,8 @@ fn to_py_token(al: std.mem.Allocator, token: tokenizer.Token) !PyToken {
 
     return PyToken{
         .type = py_token_type,
-        .start = .{ token.line_number, token.byte_offset },
-        .end = .{ token.line_number, token.byte_offset + (token.end_index - token.start_index) },
+        .start = .{ token.start_line, token.start_col },
+        .end = .{ token.end_line, token.end_col },
     };
 }
 

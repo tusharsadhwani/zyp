@@ -1,2 +1,3 @@
+# Removed unicodes to make the indices match.
 a = f'''
-    Autorzy, którzy tą jednostkę mają wpisani jako AKTUALNA -- czyli'''
+    Autorzy, ktorzy ta jednostke maja wpisani jako AKTUALNA -- czyli'''

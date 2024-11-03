@@ -20,6 +20,9 @@ pub const TokenType = enum(u8) {
     name,
     number,
     string,
+    fstring_start,
+    fstring_middle,
+    fstring_end,
 
     endmarker,
 
@@ -36,9 +39,11 @@ pub const Token = struct {
     /// Byte offsets in the file
     start_index: u32,
     end_index: u32,
-    line_number: u32,
+    start_line: u32,
     // 0-indexed offset from start of line
-    byte_offset: u32,
+    start_col: u32,
+    end_line: u32,
+    end_col: u32,
 
     const Self = @This();
 
@@ -69,6 +74,9 @@ const TokenIterator = struct {
     bracket_level: u32 = 0,
     prev_token: ?Token = null,
 
+    // f-string state
+    is_parsing_fstring: bool = false,
+
     const Self = @This();
 
     fn is_in_bounds(self: *Self) bool {
@@ -86,7 +94,7 @@ const TokenIterator = struct {
     }
 
     fn advance_check_newline(self: *Self) void {
-        if (self.peek() == '\n') {
+        if (self.source[self.current_index] == '\n') {
             self.current_index += 1;
             self.line_number += 1;
             self.byte_offset = 0;
@@ -95,28 +103,27 @@ const TokenIterator = struct {
         }
     }
 
-    fn match(self: *Self, options: []const []const u8) bool {
+    fn match(self: *Self, options: []const []const u8, config: struct { ignore_case: bool = false }) bool {
         for (options) |option| {
-            if (self.current_index + option.len >= self.source.len) continue;
-            if (std.ascii.eqlIgnoreCase(option, self.source[self.current_index .. self.current_index + option.len])) return true;
+            if (self.current_index + option.len > self.source.len) continue;
+            if (config.ignore_case) {
+                if (std.ascii.eqlIgnoreCase(option, self.source[self.current_index .. self.current_index + option.len])) return true;
+            } else {
+                if (std.mem.eql(u8, option, self.source[self.current_index .. self.current_index + option.len])) return true;
+            }
         }
         return false;
     }
 
     fn make_token(self: *Self, tok_type: TokenType) Token {
-        // std.debug.print("{any} {d} {d} {d} {d}\n", .{
-        //     tok_type,
-        //     self.prev_index,
-        //     self.current_index,
-        //     self.prev_line_number,
-        //     self.prev_byte_offset,
-        // });
         const token = Token{
             .type = tok_type,
             .start_index = self.prev_index,
             .end_index = self.current_index,
-            .line_number = self.prev_line_number,
-            .byte_offset = self.prev_byte_offset,
+            .start_line = self.prev_line_number,
+            .start_col = self.prev_byte_offset,
+            .end_line = self.line_number,
+            .end_col = self.byte_offset,
         };
         if (tok_type == .newline or tok_type == .nl) {
             self.line_number += 1;
@@ -193,7 +200,7 @@ const TokenIterator = struct {
         const quote_char = self.source[quote_index];
 
         // Check for triple quotes
-        const quote = if (quote_index + 2 <= self.source.len and
+        const quote = if (quote_index + 3 <= self.source.len and
             self.source[quote_index + 1] == quote_char and
             self.source[quote_index + 2] == quote_char)
             self.source[quote_index .. quote_index + 3]
@@ -203,8 +210,43 @@ const TokenIterator = struct {
         return .{ prefix, quote };
     }
 
+    fn fstring(self: *Self) !Token {
+        const prefix, const quote = try self.string_prefix_and_quotes();
+        if (!self.is_parsing_fstring) {
+            self.is_parsing_fstring = true;
+            for (0..prefix.len) |_| self.advance();
+            for (0..quote.len) |_| self.advance();
+            return self.make_token(.fstring_start);
+        }
+
+        if (self.match(&.{quote}, .{})) {
+            for (0..quote.len) |_| self.advance();
+            self.is_parsing_fstring = false;
+            return self.make_token(.fstring_end);
+        }
+
+        while (self.is_in_bounds()) {
+            const char = self.source[self.current_index];
+            // Handle escapes
+            if (char == '\\') {
+                self.advance();
+                self.advance_check_newline();
+                continue;
+            }
+
+            // Find closing quote
+            if (self.match(&.{quote}, .{})) {
+                return self.make_token(.fstring_middle);
+            }
+            self.advance_check_newline();
+        }
+        return error.UnexpectedEOF;
+    }
+
     fn string(self: *Self) !Token {
         const prefix, const quote = try self.string_prefix_and_quotes();
+        for (prefix) |char| if (char == 'f' or char == 'F') return self.fstring();
+
         for (0..prefix.len) |_| self.advance();
         for (0..quote.len) |_| self.advance();
 
@@ -218,9 +260,7 @@ const TokenIterator = struct {
             }
 
             // Find closing quote
-            if (self.current_index + quote.len <= self.source.len and
-                std.mem.eql(u8, self.source[self.current_index .. self.current_index + quote.len], quote))
-            {
+            if (self.match(&.{quote}, .{})) {
                 for (0..quote.len) |_| self.advance();
                 return self.make_token(.string);
             }
@@ -242,6 +282,8 @@ const TokenIterator = struct {
         if (self.current_index > self.source.len) {
             return self.endmarker();
         }
+
+        if (self.is_parsing_fstring) return self.fstring();
 
         const current_char = self.source[self.current_index];
         switch (current_char) {
@@ -341,12 +383,12 @@ const TokenIterator = struct {
                 }
             },
             // TODO: unicode identifier
-            'A'...'Z', 'a'...'z', '_' => {
-                if ((self.current_index + 1 <= self.source.len and self.match(&.{ "\"", "'" })) or
+            '"', '\'', 'A'...'Z', 'a'...'z', '_' => {
+                if ((self.current_index + 1 <= self.source.len and self.match(&.{ "\"", "'" }, .{})) or
                     (self.current_index + 2 <= self.source.len and
-                    self.match(&.{ "b\"", "b'", "r\"", "r'", "f\"", "f'", "u\"", "u'" })) or
+                    self.match(&.{ "b\"", "b'", "r\"", "r'", "f\"", "f'", "u\"", "u'" }, .{ .ignore_case = true })) or
                     (self.current_index + 3 <= self.source.len and
-                    self.match(&.{ "br\"", "br'", "rb\"", "rb'", "fr\"", "fr'", "rf\"", "rf'" })))
+                    self.match(&.{ "br\"", "br'", "rb\"", "rb'", "fr\"", "fr'", "rf\"", "rf'" }, .{ .ignore_case = true })))
                     return try self.string();
 
                 while (self.is_in_bounds() and
