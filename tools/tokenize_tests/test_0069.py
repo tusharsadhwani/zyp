@@ -1,1 +1,4 @@
-b"abc" + B"abc"
+if True:
+    # NL
+    foo='bar'
+

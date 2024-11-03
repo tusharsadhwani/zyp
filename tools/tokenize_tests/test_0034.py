@@ -1,4 +1,1 @@
-[
-    # A comment here
-    1
-]
+async()

@@ -6,7 +6,7 @@ import os
 class CheckTokenizeSourceExtractor(ast.NodeVisitor):
     def __init__(self) -> None:
         super().__init__()
-        self.sources: list[str] = []
+        self.sources: set[str] = set()
 
     def visit_Call(self, node: ast.Call) -> None:
         super().generic_visit(node)
@@ -18,7 +18,7 @@ class CheckTokenizeSourceExtractor(ast.NodeVisitor):
         if func_name_node.attr == "check_tokenize" and len(node.args) == 2:
             first_arg = node.args[0]
             if isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
-                self.sources.append(first_arg.value)
+                self.sources.add(first_arg.value)
 
 
 def main() -> None:

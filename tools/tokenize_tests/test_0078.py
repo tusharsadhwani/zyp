@@ -1,1 +1,1 @@
-class async:pass
+u'abc' + U'abc'

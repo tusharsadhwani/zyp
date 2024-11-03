@@ -1,1 +1,1 @@
-await = 1
+foo.async + 1

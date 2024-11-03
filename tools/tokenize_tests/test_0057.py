@@ -1,1 +1,3 @@
-async def foo(async): await
+f'''
+    🔗 This is a test {test_arg1}🔗
+🔗'''

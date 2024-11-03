@@ -1,1 +1,1 @@
-0xdeadc0de & 12345
+a = (async = 1)

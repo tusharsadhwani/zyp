@@ -1,3 +1,1 @@
-"a\
-de\
-fg"
+"hola\\\r\ndfgf"

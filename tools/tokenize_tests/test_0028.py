@@ -1,1 +1,2 @@
-2134568 != 1231515
+async def foo():
+  async for i in 1: pass

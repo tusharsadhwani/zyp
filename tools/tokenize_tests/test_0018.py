@@ -1,1 +1,2 @@
-0xdeadbeef != -1
+Rf"abc\
+def"

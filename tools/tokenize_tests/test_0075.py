@@ -1,1 +1,2 @@
-br'abc' + bR'abc' + Br'abc' + BR'abc'
+u"""a\
+b"""

@@ -1,1 +1,1 @@
-async
+b'abc' + B'abc'

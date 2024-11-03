@@ -1,1 +1,3 @@
-async with a as b: pass
+f'__{
+    x:d
+}__'

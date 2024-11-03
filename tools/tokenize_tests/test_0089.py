@@ -1,3 +1,1 @@
-f"""     x
-str(data, encoding={invalid!r})
-"""
+x = 1 << 1 >> 5

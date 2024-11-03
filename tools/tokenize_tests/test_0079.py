@@ -1,1 +1,1 @@
-class async:pass
+x = "doesn't "shrink", does it"

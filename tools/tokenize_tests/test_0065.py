@@ -1,1 +1,1 @@
-async.foo
+foo.async

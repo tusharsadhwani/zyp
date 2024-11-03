@@ -1,1 +1,6 @@
-2134568 != 1231515
+async def f():
+
+  def baz(): pass
+  async def bar(): pass
+
+  await = 2

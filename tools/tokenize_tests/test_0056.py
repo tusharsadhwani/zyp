@@ -1,1 +1,1 @@
-async def foo(async): await
+f"{{{1+1}}}"

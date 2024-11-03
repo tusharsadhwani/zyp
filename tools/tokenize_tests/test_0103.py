@@ -1,6 +1,2 @@
-f'''__{
-    x:a
-    b
-     c
-      d
-}__'''
+Örter = u'places'
+grün = U'green'

@@ -1,1 +1,1 @@
-async()
+fR"a{b}c"

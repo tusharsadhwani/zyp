@@ -1,3 +1,1 @@
-async
-...
-await
+class async:pass

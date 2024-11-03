@@ -1,1 +1,1 @@
-a = (async = 1)
+await = 1

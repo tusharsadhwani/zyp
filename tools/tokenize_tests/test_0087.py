@@ -1,6 +1,2 @@
-def f():
-
-  def baz(): pass
-  async def bar(): pass
-
-  await = 2
+x = 1 + \
+1

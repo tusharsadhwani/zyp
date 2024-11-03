@@ -1,1 +1,1 @@
-async()
+f'some words {a+b:.3f} more words {c+d=} final words'

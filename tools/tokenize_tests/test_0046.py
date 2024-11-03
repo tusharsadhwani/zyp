@@ -1,1 +1,3 @@
-async = 1
+def f():
+	if x
+        	pass

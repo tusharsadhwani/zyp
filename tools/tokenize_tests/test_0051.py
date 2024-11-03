@@ -1,2 +1,1 @@
-async def foo():
-  async for i in 1: pass
+f"""{f'''{f'{f"{1+1}"}'}'''}"""

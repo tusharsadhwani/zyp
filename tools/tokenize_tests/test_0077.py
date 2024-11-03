@@ -1,1 +1,1 @@
-class async(Bar):pass
+u"abc" + U"abc"

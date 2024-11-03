@@ -1,2 +1,1 @@
-@staticmethod
-def foo(x,y): pass
+async def foo(): pass

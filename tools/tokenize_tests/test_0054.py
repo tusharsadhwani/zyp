@@ -1,1 +1,1 @@
-async def foo(): pass
+f"hola\\\r\ndfgf"

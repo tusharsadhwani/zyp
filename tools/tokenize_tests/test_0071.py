@@ -1,1 +1,3 @@
-b'abc' + B'abc'
+rb"""a\
+b\
+c"""

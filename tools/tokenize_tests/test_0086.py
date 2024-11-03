@@ -1,3 +1,1 @@
-def f():
-	if x
-        	pass
+x = 0xfffffffffff

@@ -1,3 +1,1 @@
-async
-#comment
-await
+class async(Bar):pass

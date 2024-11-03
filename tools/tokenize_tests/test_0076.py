@@ -1,1 +1,2 @@
-class async(Bar):pass
+u"a\
+de"

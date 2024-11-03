@@ -1,1 +1,4 @@
-0xdeadbeef != -1
+[
+    # A comment here
+    1
+]

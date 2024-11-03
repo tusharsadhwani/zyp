@@ -1,1 +1,3 @@
-async with a as b: pass
+f'''{
+3
+=}'''

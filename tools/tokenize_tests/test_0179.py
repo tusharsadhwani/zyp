@@ -1,2 +1,0 @@
-Örter = 'places'
-grün = 'green'

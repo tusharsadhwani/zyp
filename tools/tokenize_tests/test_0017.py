@@ -1,1 +1,2 @@
-0xFF & 0x15 | 1234
+@staticmethod
+def foo(x,y): pass

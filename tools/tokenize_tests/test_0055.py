@@ -1,1 +1,2 @@
-async def foo(): pass
+f"{
+a}"
