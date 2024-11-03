@@ -2,8 +2,9 @@ const std = @import("std");
 
 pub const TokenType = enum(u8) {
     whitespace,
-    newline,
-    name,
+    newline, // semantically meaningful newline
+    nl, // non meaningful newline
+    comment,
 
     _op_start,
     semicolon,
@@ -16,6 +17,7 @@ pub const TokenType = enum(u8) {
     op,
     _op_end,
 
+    name,
     number,
     endmarker,
 
@@ -59,6 +61,8 @@ const TokenIterator = struct {
     line_number: u32 = 1,
     byte_offset: u32 = 0,
 
+    bracket_level: u32 = 0,
+
     const Self = @This();
 
     fn is_in_bounds(self: *Self) bool {
@@ -89,8 +93,12 @@ const TokenIterator = struct {
     }
 
     fn newline(self: *Self) Token {
+        const last_token_was_newline = self.current_index >= 1 and
+            self.source[self.current_index - 1] == '\n';
         self.advance();
-        const token = self.make_token(.newline, self.current_index - 1);
+        const in_brackets = self.bracket_level > 0;
+        const token_type: TokenType = if (in_brackets or last_token_was_newline) .nl else .newline;
+        const token = self.make_token(token_type, self.current_index - 1);
         self.line_number += 1;
         self.byte_offset = 0;
         return token;
@@ -169,6 +177,14 @@ const TokenIterator = struct {
             '\n' => {
                 return self.newline();
             },
+            '#' => {
+                const start_index = self.current_index;
+                while (self.is_in_bounds() and self.source[self.current_index] != '\n') : (self.advance()) {}
+                return self.make_token(
+                    .comment,
+                    start_index,
+                );
+            },
             // TODO: handle indentation
             ' ', '\r', '\t', '\x0b', '\x0c' => {
                 const start_index = self.current_index;
@@ -207,6 +223,7 @@ const TokenIterator = struct {
             },
             '(' => {
                 self.advance();
+                self.bracket_level += 1;
                 return self.make_token(
                     .lparen,
                     self.current_index - 1,
@@ -214,6 +231,7 @@ const TokenIterator = struct {
             },
             ')' => {
                 self.advance();
+                self.bracket_level -|= 1;
                 return self.make_token(
                     .rparen,
                     self.current_index - 1,
@@ -221,6 +239,7 @@ const TokenIterator = struct {
             },
             '[' => {
                 self.advance();
+                self.bracket_level += 1;
                 return self.make_token(
                     .lbracket,
                     self.current_index - 1,
@@ -228,6 +247,7 @@ const TokenIterator = struct {
             },
             ']' => {
                 self.advance();
+                self.bracket_level -|= 1;
                 return self.make_token(
                     .rbracket,
                     self.current_index - 1,
@@ -235,6 +255,7 @@ const TokenIterator = struct {
             },
             '{' => {
                 self.advance();
+                self.bracket_level += 1;
                 return self.make_token(
                     .lbrace,
                     self.current_index - 1,
@@ -242,6 +263,7 @@ const TokenIterator = struct {
             },
             '}' => {
                 self.advance();
+                self.bracket_level -|= 1;
                 return self.make_token(
                     .rbrace,
                     self.current_index - 1,
@@ -324,4 +346,6 @@ test tokenize {
         try std.testing.expectEqual(expected_type, token.type);
         try std.testing.expectEqualStrings(expected_value, token.to_byte_slice(source));
     }
+
+    // TODO: test tokenizing empty source, pretty sure it fails right now
 }
