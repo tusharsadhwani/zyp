@@ -62,6 +62,7 @@ const TokenIterator = struct {
     byte_offset: u32 = 0,
 
     bracket_level: u32 = 0,
+    prev_token: ?Token = null,
 
     const Self = @This();
 
@@ -83,21 +84,27 @@ const TokenIterator = struct {
         //     self.byte_offset,
         //     (self.current_index - start_index),
         // });
-        return Token{
+        const token = Token{
             .type = tok_type,
             .start_index = start_index,
             .end_index = self.current_index,
             .line_number = self.line_number,
             .byte_offset = self.byte_offset - (self.current_index - start_index),
         };
+        self.prev_token = token;
+        return token;
     }
 
     fn newline(self: *Self) Token {
-        const last_token_was_newline = self.current_index >= 1 and
-            self.source[self.current_index - 1] == '\n';
+        const prev_token_type = if (self.prev_token) |tok| tok.type else null;
         self.advance();
         const in_brackets = self.bracket_level > 0;
-        const token_type: TokenType = if (in_brackets or last_token_was_newline) .nl else .newline;
+        const token_type: TokenType =
+            if (in_brackets or prev_token_type == .newline or prev_token_type == .comment)
+            .nl
+        else
+            .newline;
+
         const token = self.make_token(token_type, self.current_index - 1);
         self.line_number += 1;
         self.byte_offset = 0;
@@ -148,7 +155,7 @@ const TokenIterator = struct {
 
     fn hexadecimal(self: *Self) Token {
         const start_index = self.current_index;
-        // jump over `0o`
+        // jump over `0x`
         self.advance();
         self.advance();
         while (self.is_in_bounds() and
@@ -162,10 +169,11 @@ const TokenIterator = struct {
 
     pub fn next(self: *Self) !Token {
         if (self.current_index == self.source.len) {
-            if (self.source[self.current_index - 1] != '\n') {
-                return self.newline();
-            } else {
+            const prev_token = self.prev_token orelse return self.newline();
+            if (prev_token.type == .newline or prev_token.type == .nl) {
                 return self.endmarker();
+            } else {
+                return self.newline();
             }
         }
         if (self.current_index > self.source.len) {
@@ -218,6 +226,19 @@ const TokenIterator = struct {
                 self.advance();
                 return self.make_token(
                     .semicolon,
+                    self.current_index - 1,
+                );
+            },
+            '.' => {
+                self.advance();
+                if (self.current_index + 2 < self.source.len and
+                    std.ascii.eqlIgnoreCase(self.source[self.current_index .. self.current_index + 2], "0b"))
+                {
+                    self.advance();
+                    self.advance();
+                }
+                return self.make_token(
+                    .op,
                     self.current_index - 1,
                 );
             },
@@ -308,13 +329,9 @@ pub fn tokenize(source: []const u8) TokenIterator {
     return TokenIterator{ .source = source };
 }
 
-test tokenize {
-    const source =
-        \\x = 1
-        \\print(x)
-    ;
+const TokenTuple = struct { TokenType, []const u8 };
+fn validate_tokens(source: []const u8, expected_tokens: []TokenTuple) !void {
     var token_iterator = tokenize(source);
-
     var token_list = std.ArrayList(Token).init(std.testing.allocator);
     defer token_list.deinit();
 
@@ -326,8 +343,18 @@ test tokenize {
     // for (token_list.items) |token| {
     //     if (token.type != .whitespace) std.debug.print("{s} {any}\n", .{ token.to_byte_slice(source), token });
     // }
-
-    const expected_tokens = [_]struct { TokenType, []const u8 }{
+    for (token_list.items, expected_tokens) |token, expected| {
+        const expected_type, const expected_value = expected;
+        try std.testing.expectEqual(expected_type, token.type);
+        try std.testing.expectEqualStrings(expected_value, token.to_byte_slice(source));
+    }
+}
+test tokenize {
+    const source: []const u8 =
+        \\x = 1
+        \\print(x)
+    ;
+    var expected_tokens = [_]TokenTuple{
         .{ .name, "x" },
         .{ .whitespace, " " },
         .{ .op, "=" },
@@ -341,11 +368,14 @@ test tokenize {
         .{ .newline, "\n" },
         .{ .endmarker, "" },
     };
-    for (token_list.items, expected_tokens) |token, expected| {
-        const expected_type, const expected_value = expected;
-        try std.testing.expectEqual(expected_type, token.type);
-        try std.testing.expectEqualStrings(expected_value, token.to_byte_slice(source));
-    }
+    try validate_tokens(source, &expected_tokens);
+}
 
-    // TODO: test tokenizing empty source, pretty sure it fails right now
+test "blank source" {
+    const source = "";
+    var expected_tokens = [_]TokenTuple{
+        .{ .newline, "\n" },
+        .{ .endmarker, "" },
+    };
+    try validate_tokens(source, &expected_tokens);
 }
