@@ -47,7 +47,7 @@ pub const Token = struct {
 
     const Self = @This();
 
-    fn to_byte_slice(self: *const Self, source: []const u8) []const u8 {
+    pub fn to_byte_slice(self: *const Self, source: []const u8) []const u8 {
         // Newline at end of file may not exist in the file
         if (self.type == .newline and self.start_index == source.len and self.end_index == source.len + 1)
             return "\n";
@@ -76,6 +76,7 @@ const TokenIterator = struct {
 
     // f-string state
     is_parsing_fstring: bool = false,
+    fstring_quote: ?[]const u8 = null,
 
     const Self = @This();
 
@@ -106,10 +107,11 @@ const TokenIterator = struct {
     fn match(self: *Self, options: []const []const u8, config: struct { ignore_case: bool = false }) bool {
         for (options) |option| {
             if (self.current_index + option.len > self.source.len) continue;
+            const slice = self.source[self.current_index .. self.current_index + option.len];
             if (config.ignore_case) {
-                if (std.ascii.eqlIgnoreCase(option, self.source[self.current_index .. self.current_index + option.len])) return true;
+                if (std.ascii.eqlIgnoreCase(option, slice)) return true;
             } else {
-                if (std.mem.eql(u8, option, self.source[self.current_index .. self.current_index + option.len])) return true;
+                if (std.mem.eql(u8, option, slice)) return true;
             }
         }
         return false;
@@ -187,15 +189,17 @@ const TokenIterator = struct {
         return self.make_token(.number);
     }
 
-    fn string_prefix_and_quotes(self: *Self) !struct { []const u8, []const u8 } {
-        const rest_source = self.source[self.current_index..];
-        const quote_index = self.current_index +
-            if (std.mem.indexOf(u8, rest_source, "'")) |idx|
-            idx
-        else
-            std.mem.indexOf(u8, rest_source, "\"") orelse
-                @panic("No quote found somehow??");
+    fn find_opening_quote(self: *Self) usize {
+        // Quotes should always be within 3 chars of the beginning of the string token
+        for (0..3) |offset| {
+            const char = self.source[self.current_index + offset];
+            if (char == '"' or char == '\'') return self.current_index + offset;
+        }
+        @panic("Quote not found somehow");
+    }
 
+    fn string_prefix_and_quotes(self: *Self) !struct { []const u8, []const u8 } {
+        const quote_index = self.find_opening_quote();
         const prefix = self.source[self.current_index..quote_index];
         const quote_char = self.source[quote_index];
 
@@ -211,16 +215,17 @@ const TokenIterator = struct {
     }
 
     fn fstring(self: *Self) !Token {
-        const prefix, const quote = try self.string_prefix_and_quotes();
         if (!self.is_parsing_fstring) {
+            const prefix, const quote = try self.string_prefix_and_quotes();
             self.is_parsing_fstring = true;
+            self.fstring_quote = quote;
             for (0..prefix.len) |_| self.advance();
             for (0..quote.len) |_| self.advance();
             return self.make_token(.fstring_start);
         }
 
-        if (self.match(&.{quote}, .{})) {
-            for (0..quote.len) |_| self.advance();
+        if (self.match(&.{self.fstring_quote.?}, .{})) {
+            for (0..self.fstring_quote.?.len) |_| self.advance();
             self.is_parsing_fstring = false;
             return self.make_token(.fstring_end);
         }
@@ -235,7 +240,7 @@ const TokenIterator = struct {
             }
 
             // Find closing quote
-            if (self.match(&.{quote}, .{})) {
+            if (self.match(&.{self.fstring_quote.?}, .{})) {
                 return self.make_token(.fstring_middle);
             }
             self.advance_check_newline();
