@@ -159,6 +159,25 @@ const TokenIterator = struct {
 
     fn decimal(self: *Self) Token {
         while (self.is_in_bounds() and std.ascii.isDigit(self.source[self.current_index])) self.advance();
+        if (self.is_in_bounds() and self.source[self.current_index] == '.') self.advance();
+        while (self.is_in_bounds() and std.ascii.isDigit(self.source[self.current_index])) self.advance();
+        if (self.is_in_bounds() and (self.source[self.current_index] == 'e' or self.source[self.current_index] == 'E')) {
+            self.advance();
+            if (self.is_in_bounds() and self.source[self.current_index] == '-') self.advance();
+        }
+        while (self.is_in_bounds() and std.ascii.isDigit(self.source[self.current_index])) self.advance();
+        // If all of this resulted in just a dot, return an operator
+        if (self.current_index - self.prev_index == 1 and self.source[self.current_index - 1] == '.') {
+            // Ellipsis check
+            if (self.current_index + 2 <= self.source.len and
+                std.mem.eql(u8, self.source[self.current_index .. self.current_index + 2], ".."))
+            {
+                self.advance();
+                self.advance();
+            }
+            return self.make_token(.op);
+        }
+
         return self.make_token(.number);
     }
 
@@ -166,6 +185,12 @@ const TokenIterator = struct {
         // jump over `0b`
         self.advance();
         self.advance();
+        while (self.is_in_bounds() and
+            self.source[self.current_index] == '0' or self.source[self.current_index] == '1') self.advance();
+        if (self.is_in_bounds() and (self.source[self.current_index] == 'e' or self.source[self.current_index] == 'E')) {
+            self.advance();
+            if (self.is_in_bounds() and self.source[self.current_index] == '-') self.advance();
+        }
         while (self.is_in_bounds() and
             self.source[self.current_index] == '0' or self.source[self.current_index] == '1') self.advance();
         return self.make_token(.number);
@@ -177,6 +202,12 @@ const TokenIterator = struct {
         self.advance();
         while (self.is_in_bounds() and
             self.source[self.current_index] >= '0' and self.source[self.current_index] <= '7') self.advance();
+        if (self.is_in_bounds() and (self.source[self.current_index] == 'e' or self.source[self.current_index] == 'E')) {
+            self.advance();
+            if (self.is_in_bounds() and self.source[self.current_index] == '-') self.advance();
+        }
+        while (self.is_in_bounds() and
+            self.source[self.current_index] >= '0' and self.source[self.current_index] <= '7') self.advance();
         return self.make_token(.number);
     }
 
@@ -184,6 +215,12 @@ const TokenIterator = struct {
         // jump over `0x`
         self.advance();
         self.advance();
+        while (self.is_in_bounds() and
+            std.ascii.isHex(self.source[self.current_index])) self.advance();
+        if (self.is_in_bounds() and (self.source[self.current_index] == 'e' or self.source[self.current_index] == 'E')) {
+            self.advance();
+            if (self.is_in_bounds() and self.source[self.current_index] == '-') self.advance();
+        }
         while (self.is_in_bounds() and
             std.ascii.isHex(self.source[self.current_index])) self.advance();
         return self.make_token(.number);
@@ -330,16 +367,6 @@ const TokenIterator = struct {
                 self.advance();
                 return self.make_token(.op);
             },
-            '.' => {
-                self.advance();
-                if (self.current_index + 2 <= self.source.len and
-                    std.ascii.eqlIgnoreCase(self.source[self.current_index .. self.current_index + 2], "0b"))
-                {
-                    self.advance();
-                    self.advance();
-                }
-                return self.make_token(.op);
-            },
             '(' => {
                 self.advance();
                 self.bracket_level += 1;
@@ -370,7 +397,7 @@ const TokenIterator = struct {
                 self.bracket_level -|= 1;
                 return self.make_token(.rbrace);
             },
-            '0'...'9' => {
+            '.', '0'...'9' => {
                 if (self.current_index + 2 <= self.source.len and
                     std.ascii.eqlIgnoreCase(self.source[self.current_index .. self.current_index + 2], "0b"))
                 {
