@@ -341,8 +341,20 @@ const TokenIterator = struct {
                 while (self.is_in_bounds() and is_whitespace(self.source[self.current_index])) self.advance();
                 return self.make_token(.whitespace);
             },
-            '+', '&', '|', '^', '<', '>', '=', '!', '~' => {
+            '+', '&', '|', '^', '@', '=', '!', '~' => {
                 self.advance();
+                if (self.peek() == '=') self.advance();
+                return self.make_token(.op);
+            },
+            '<' => {
+                self.advance();
+                if (self.peek() == '<') self.advance();
+                if (self.peek() == '=') self.advance();
+                return self.make_token(.op);
+            },
+            '>' => {
+                self.advance();
+                if (self.peek() == '>') self.advance();
                 if (self.peek() == '=') self.advance();
                 return self.make_token(.op);
             },
