@@ -164,7 +164,7 @@ pub const TokenIterator = struct {
         self.advance();
         const in_brackets = self.bracket_level > 0;
         const token_type: TokenType =
-            if (in_brackets or prev_token_type == .newline or prev_token_type == .comment)
+            if (in_brackets or prev_token_type == null or prev_token_type == .newline or prev_token_type == .nl or prev_token_type == .comment)
             .nl
         else
             .newline;
@@ -362,7 +362,7 @@ pub const TokenIterator = struct {
             return self.make_token(.indent);
         } else {
             while (self.indent_stack.items.len > 0) {
-                const top_indent = self.indent_stack.pop();
+                const top_indent = self.indent_stack.getLast();
                 if (top_indent.len < new_indent.len)
                     return error.DedentDoesNotMatchAnyOuterIndent;
 
@@ -372,27 +372,23 @@ pub const TokenIterator = struct {
 
                 if (top_indent.len == new_indent.len)
                     break;
+
+                _ = self.indent_stack.pop();
                 self.dedent_counter += 1;
             }
-            self.dedent_counter -= 1;
-            return self.make_token(.dedent);
+            // Let the dedent counter make the dedents. They must be length zero
+            return self.make_token(.whitespace);
         }
     }
 
     pub fn next(self: *Self) !Token {
+        // Always empty the dedent counter first
         if (self.dedent_counter > 0) {
             self.dedent_counter -= 1;
             return self.make_token(.dedent);
         }
 
-        if (self.byte_offset == 0 and self.bracket_level == 0) {
-            const indent_token = self.indent() catch |err| switch (err) {
-                error.NotAnIndent => null,
-                else => return err,
-            };
-            if (indent_token) |_token| return _token;
-        }
-
+        // EOF checks
         if (self.current_index == self.source.len) {
             const prev_token = self.prev_token orelse return self.newline();
             if (prev_token.type == .newline or prev_token.type == .nl or prev_token.type == .dedent) {
@@ -408,15 +404,23 @@ pub const TokenIterator = struct {
         if (self.is_parsing_fstring) return self.fstring();
 
         const current_char = self.source[self.current_index];
+        // Newline check
+        if (current_char == '\n') return self.newline();
+
+        // Indent / dedent checks
+        if (self.byte_offset == 0 and self.bracket_level == 0 and !self.is_parsing_fstring) {
+            const indent_token = self.indent() catch |err| switch (err) {
+                error.NotAnIndent => null,
+                else => return err,
+            };
+            if (indent_token) |_token| return _token;
+        }
+
         switch (current_char) {
-            '\n' => {
-                return self.newline();
-            },
             '#' => {
                 while (self.peek() != '\n') self.advance();
                 return self.make_token(.comment);
             },
-            // TODO: handle indentation
             ' ', '\r', '\t', '\x0b', '\x0c' => {
                 while (self.is_in_bounds() and is_whitespace(self.source[self.current_index])) self.advance();
                 return self.make_token(.whitespace);
