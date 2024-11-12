@@ -19,9 +19,10 @@ pub fn main() !u8 {
         const source = try read_file(allocator, filepath);
         defer allocator.free(source);
 
-        var tokens = tokenizer.tokenize(source);
+        var token_iterator = tokenizer.TokenIterator.init(allocator, source);
+        defer token_iterator.deinit();
         while (true) {
-            const token = try tokens.next();
+            const token = try token_iterator.next();
             if (token.type != .whitespace) std.debug.print(
                 "{s} {any}\n",
                 .{ token.to_byte_slice(source), token },

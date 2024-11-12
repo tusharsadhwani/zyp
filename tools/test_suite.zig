@@ -22,7 +22,9 @@ fn to_py_token(al: std.mem.Allocator, token: tokenizer.Token) !PyToken {
 }
 
 fn check(allocator: std.mem.Allocator, file_path: []const u8, source: []const u8, debug: bool) !void {
-    var tokens = tokenizer.tokenize(source);
+    var tokens = tokenizer.TokenIterator.init(allocator, source);
+    defer tokens.deinit();
+
     var py_tokens = std.ArrayList(PyToken).init(allocator);
     defer {
         for (py_tokens.items) |py_token| {

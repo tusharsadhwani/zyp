@@ -2,6 +2,8 @@ const std = @import("std");
 
 pub const TokenType = enum(u8) {
     whitespace,
+    indent,
+    dedent,
     newline, // semantically meaningful newline
     nl, // non meaningful newline
     comment,
@@ -51,6 +53,11 @@ pub const Token = struct {
         // Newline at end of file may not exist in the file
         if (self.type == .newline and self.start_index == source.len and self.end_index == source.len + 1)
             return "\n";
+
+        // Dedents at end of file also may not exist in the file
+        if (self.type == .dedent and self.start_index == source.len + 1 and self.end_index == source.len + 1)
+            return "";
+
         // Endmarkers are out of bound too
         if (self.type == .endmarker)
             return "";
@@ -62,7 +69,7 @@ fn is_whitespace(char: u8) bool {
     return char == ' ' or char == '\r' or char == '\t' or char == '\x0b' or char == '\x0c';
 }
 
-const TokenIterator = struct {
+pub const TokenIterator = struct {
     source: []const u8,
     current_index: u32 = 0,
     prev_index: u32 = 0,
@@ -74,11 +81,25 @@ const TokenIterator = struct {
     bracket_level: u32 = 0,
     prev_token: ?Token = null,
 
+    indent_stack: std.ArrayList([]const u8),
+    dedent_counter: u32 = 0,
+
     // f-string state
     is_parsing_fstring: bool = false,
     fstring_quote: ?[]const u8 = null,
 
     const Self = @This();
+
+    pub fn init(allocator: std.mem.Allocator, source: []const u8) Self {
+        return Self{
+            .indent_stack = std.ArrayList([]const u8).init(allocator),
+            .source = source,
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.indent_stack.deinit();
+    }
 
     fn is_in_bounds(self: *Self) bool {
         return self.current_index < self.source.len;
@@ -153,8 +174,11 @@ const TokenIterator = struct {
     }
 
     fn endmarker(self: *Self) Token {
-        const token = self.make_token(.endmarker);
-        return token;
+        if (self.indent_stack.items.len > 0) {
+            _ = self.indent_stack.pop();
+            return self.make_token(.dedent);
+        }
+        return self.make_token(.endmarker);
     }
 
     fn decimal(self: *Self) Token {
@@ -312,10 +336,66 @@ const TokenIterator = struct {
         return error.UnexpectedEOF;
     }
 
+    fn indent(self: *Self) !Token {
+        const start_index = self.current_index;
+        while (self.is_in_bounds() and (self.source[self.current_index] == ' ' or self.source[self.current_index] == '\t')) self.advance();
+        if (!self.is_in_bounds()) {
+            if (self.current_index == start_index)
+                return error.NotAnIndent;
+            return self.make_token(.whitespace);
+        }
+
+        const new_indent = self.source[start_index..self.current_index];
+        const current_indent = self.indent_stack.getLastOrNull() orelse "";
+
+        if (new_indent.len == current_indent.len) {
+            if (new_indent.len == 0) return error.NotAnIndent;
+
+            if (!std.mem.eql(u8, new_indent, current_indent))
+                return error.InconsistentUseOfTabsAndSpaces;
+            return self.make_token(.whitespace);
+        } else if (new_indent.len > current_indent.len) {
+            const new_indent_slice = new_indent[0..current_indent.len];
+            if (!std.mem.eql(u8, new_indent_slice, current_indent))
+                return error.InconsistentUseOfTabsAndSpaces;
+            try self.indent_stack.append(new_indent);
+            return self.make_token(.indent);
+        } else {
+            while (self.indent_stack.items.len > 0) {
+                const top_indent = self.indent_stack.pop();
+                if (top_indent.len < new_indent.len)
+                    return error.DedentDoesNotMatchAnyOuterIndent;
+
+                const top_indent_slice = top_indent[0..new_indent.len];
+                if (!std.mem.eql(u8, top_indent_slice, new_indent))
+                    return error.InconsistentUseOfTabsAndSpaces;
+
+                if (top_indent.len == new_indent.len)
+                    break;
+                self.dedent_counter += 1;
+            }
+            self.dedent_counter -= 1;
+            return self.make_token(.dedent);
+        }
+    }
+
     pub fn next(self: *Self) !Token {
+        if (self.dedent_counter > 0) {
+            self.dedent_counter -= 1;
+            return self.make_token(.dedent);
+        }
+
+        if (self.byte_offset == 0 and self.bracket_level == 0) {
+            const indent_token = self.indent() catch |err| switch (err) {
+                error.NotAnIndent => null,
+                else => return err,
+            };
+            if (indent_token) |_token| return _token;
+        }
+
         if (self.current_index == self.source.len) {
             const prev_token = self.prev_token orelse return self.newline();
-            if (prev_token.type == .newline or prev_token.type == .nl) {
+            if (prev_token.type == .newline or prev_token.type == .nl or prev_token.type == .dedent) {
                 return self.endmarker();
             } else {
                 return self.newline();
@@ -453,13 +533,10 @@ const TokenIterator = struct {
     }
 };
 
-pub fn tokenize(source: []const u8) TokenIterator {
-    return TokenIterator{ .source = source };
-}
-
 const TokenTuple = struct { TokenType, []const u8 };
-fn validate_tokens(source: []const u8, expected_tokens: []TokenTuple) !void {
-    var token_iterator = tokenize(source);
+fn validate_tokens(allocator: std.mem.Allocator, source: []const u8, expected_tokens: []TokenTuple) !void {
+    var token_iterator = TokenIterator.init(allocator, source);
+    defer token_iterator.deinit();
     var token_list = std.ArrayList(Token).init(std.testing.allocator);
     defer token_list.deinit();
 
@@ -477,7 +554,7 @@ fn validate_tokens(source: []const u8, expected_tokens: []TokenTuple) !void {
         try std.testing.expectEqualStrings(expected_value, token.to_byte_slice(source));
     }
 }
-test tokenize {
+test TokenIterator {
     const source: []const u8 =
         \\x = 1
         \\print(x)
@@ -496,7 +573,7 @@ test tokenize {
         .{ .newline, "\n" },
         .{ .endmarker, "" },
     };
-    try validate_tokens(source, &expected_tokens);
+    try validate_tokens(std.testing.allocator, source, &expected_tokens);
 }
 
 test "blank source" {
@@ -505,5 +582,5 @@ test "blank source" {
         .{ .newline, "\n" },
         .{ .endmarker, "" },
     };
-    try validate_tokens(source, &expected_tokens);
+    try validate_tokens(std.testing.allocator, source, &expected_tokens);
 }
