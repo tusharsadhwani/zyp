@@ -77,6 +77,7 @@ pub const TokenIterator = struct {
     prev_line_number: u32 = 1,
     byte_offset: u32 = 0,
     prev_byte_offset: u32 = 0,
+    all_whitespace_on_this_line: bool = true,
 
     bracket_level: u32 = 0,
     prev_token: ?Token = null,
@@ -115,11 +116,16 @@ pub const TokenIterator = struct {
         self.byte_offset += 1;
     }
 
+    fn next_line(self: *Self) void {
+        self.line_number += 1;
+        self.byte_offset = 0;
+        self.all_whitespace_on_this_line = true;
+    }
+
     fn advance_check_newline(self: *Self) void {
         if (self.source[self.current_index] == '\n') {
             self.current_index += 1;
-            self.line_number += 1;
-            self.byte_offset = 0;
+            self.next_line();
         } else {
             self.advance();
         }
@@ -149,8 +155,9 @@ pub const TokenIterator = struct {
             .end_col = self.byte_offset,
         };
         if (tok_type == .newline or tok_type == .nl) {
-            self.line_number += 1;
-            self.byte_offset = 0;
+            self.next_line();
+        } else if (tok_type == .whitespace or tok_type == .comment) {} else {
+            self.all_whitespace_on_this_line = false;
         }
         self.prev_token = token;
         self.prev_index = self.current_index;
@@ -160,11 +167,10 @@ pub const TokenIterator = struct {
     }
 
     fn newline(self: *Self) Token {
-        const prev_token_type = if (self.prev_token) |tok| tok.type else null;
         self.advance();
         const in_brackets = self.bracket_level > 0;
         const token_type: TokenType =
-            if (in_brackets or prev_token_type == null or prev_token_type == .newline or prev_token_type == .nl or prev_token_type == .comment)
+            if (in_brackets or self.all_whitespace_on_this_line)
             .nl
         else
             .newline;
@@ -344,6 +350,11 @@ pub const TokenIterator = struct {
                 return error.NotAnIndent;
             return self.make_token(.whitespace);
         }
+        // For lines that are just leading whitespace and a comment, don't return indents
+        if (self.current_index > start_index) {
+            const next_char = self.peek();
+            if (next_char == '#' or next_char == '\n') return self.make_token(.whitespace);
+        }
 
         const new_indent = self.source[start_index..self.current_index];
         const current_indent = self.indent_stack.getLastOrNull() orelse "";
@@ -355,8 +366,7 @@ pub const TokenIterator = struct {
                 return error.InconsistentUseOfTabsAndSpaces;
             return self.make_token(.whitespace);
         } else if (new_indent.len > current_indent.len) {
-            const new_indent_slice = new_indent[0..current_indent.len];
-            if (!std.mem.eql(u8, new_indent_slice, current_indent))
+            if (current_indent.len > 0 and !std.mem.containsAtLeast(u8, new_indent, 1, current_indent))
                 return error.InconsistentUseOfTabsAndSpaces;
             try self.indent_stack.append(new_indent);
             return self.make_token(.indent);
@@ -365,10 +375,6 @@ pub const TokenIterator = struct {
                 const top_indent = self.indent_stack.getLast();
                 if (top_indent.len < new_indent.len)
                     return error.DedentDoesNotMatchAnyOuterIndent;
-
-                const top_indent_slice = top_indent[0..new_indent.len];
-                if (!std.mem.eql(u8, top_indent_slice, new_indent))
-                    return error.InconsistentUseOfTabsAndSpaces;
 
                 if (top_indent.len == new_indent.len)
                     break;
@@ -379,6 +385,15 @@ pub const TokenIterator = struct {
             // Let the dedent counter make the dedents. They must be length zero
             return self.make_token(.whitespace);
         }
+    }
+
+    fn is_newline(self: *Self) bool {
+        if (self.source[self.current_index] == '\n') return true;
+        if (self.source[self.current_index] == '\r' and self.current_index + 1 < self.source.len and self.source[self.current_index + 1] == '\n') {
+            self.advance();
+            return true;
+        }
+        return false;
     }
 
     pub fn next(self: *Self) !Token {
@@ -405,7 +420,20 @@ pub const TokenIterator = struct {
 
         const current_char = self.source[self.current_index];
         // Newline check
-        if (current_char == '\n') return self.newline();
+        if (self.is_newline()) {
+            return self.newline();
+        }
+        // \<newline> check
+        if (current_char == '\\') {
+            self.advance();
+            if (!self.is_in_bounds()) return error.UnexpectedEOF;
+            if (self.is_newline()) {
+                self.advance();
+                self.next_line();
+                return self.make_token(.whitespace);
+            }
+            return error.UnexpectedCharacterAfterBackslash;
+        }
 
         // Indent / dedent checks
         if (self.byte_offset == 0 and self.bracket_level == 0 and !self.is_parsing_fstring) {
@@ -418,14 +446,14 @@ pub const TokenIterator = struct {
 
         switch (current_char) {
             '#' => {
-                while (self.peek() != '\n') self.advance();
+                while (self.peek() != '\n' and self.peek() != '\r') self.advance();
                 return self.make_token(.comment);
             },
             ' ', '\r', '\t', '\x0b', '\x0c' => {
                 while (self.is_in_bounds() and is_whitespace(self.source[self.current_index])) self.advance();
                 return self.make_token(.whitespace);
             },
-            '+', '&', '|', '^', '@', '=', '!', '~' => {
+            '+', '&', '|', '^', '@', '%', '=', '!', '~' => {
                 self.advance();
                 if (self.peek() == '=') self.advance();
                 return self.make_token(.op);

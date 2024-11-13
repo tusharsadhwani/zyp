@@ -1,2 +1,2 @@
-Örter = u'places'
-grün = U'green'
+Orter = u'places'
+grun = U'green'
