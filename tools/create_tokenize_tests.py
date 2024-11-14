@@ -31,6 +31,11 @@ def main() -> None:
     visitor.visit(tree)
     for index, source in enumerate(sorted(visitor.sources), start=1):
         filepath = os.path.join(test_folder_filepath, f"test_{index:>04}.py")
+        # Some tests had to be tweaked because I don't want to do unicode column numbers
+        # in the tokenizer output. For those there's a *_original.py file instead.
+        if os.path.exists(f"{filepath[:-3]}_original.py"):
+            filepath = f"{filepath[:-3]}_original.py"
+
         with open(filepath, "w") as file:
             file.write(source)
 
