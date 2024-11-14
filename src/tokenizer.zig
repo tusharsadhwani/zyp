@@ -297,8 +297,12 @@ pub const TokenIterator = struct {
             return self.make_token(.fstring_end);
         }
 
+        const is_single_quote = self.fstring_quote.?.len == 1;
         while (self.is_in_bounds()) {
             const char = self.source[self.current_index];
+            // For single quotes, bail on newlines
+            if (char == '\n' and is_single_quote) return error.UnterminatedString;
+
             // Handle escapes
             if (char == '\\') {
                 self.advance();
@@ -322,8 +326,13 @@ pub const TokenIterator = struct {
         for (0..prefix.len) |_| self.advance();
         for (0..quote.len) |_| self.advance();
 
+        const is_single_quote = quote.len == 1;
+
         while (self.is_in_bounds()) {
             const char = self.source[self.current_index];
+            // For single quotes, bail on newlines
+            if (char == '\n' and is_single_quote) return error.UnterminatedString;
+
             // Handle escapes
             if (char == '\\') {
                 self.advance();
