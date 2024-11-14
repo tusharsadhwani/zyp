@@ -56,13 +56,54 @@ fn check(allocator: std.mem.Allocator, file_path: []const u8, source: []const u8
     defer allocator.free(result.stderr);
 
     if (result.term.Exited != 0) return error.SubprocessFailed;
-    const expected_py_tokens = try std.json.parseFromSlice([]PyToken, allocator, result.stdout, .{});
+    const expected_py_tokens_ = try std.json.parseFromSlice([]PyToken, allocator, result.stdout, .{});
+    defer expected_py_tokens_.deinit();
+    var expected_py_tokens = std.ArrayList(PyToken).init(allocator);
     defer expected_py_tokens.deinit();
 
-    if (expected_py_tokens.value.len != py_tokens.items.len) {
+    try expected_py_tokens.append(expected_py_tokens_.value[0]);
+    for (expected_py_tokens_.value[1..], 1..) |token, index| {
+        const last_token = expected_py_tokens.getLast();
+        // Merge consecutive FSTRING_MIDDLE tokens. it's weird cpython has it like that.
+        if (std.mem.eql(u8, token.type, "FSTRING_MIDDLE") and
+            std.mem.eql(u8, last_token.type, "FSTRING_MIDDLE"))
+        {
+            _ = expected_py_tokens.pop();
+            try expected_py_tokens.append(PyToken{
+                .type = token.type,
+                .start = last_token.start,
+                .end = token.end,
+            });
+            continue;
+        }
+        if (index + 1 < expected_py_tokens_.value.len) {
+            // When an FSTRING_MIDDLE ends with a `{{{` like f'x{{{1}', Python eats
+            // the last { char as well as its end index, so we get a `x{` token
+            // instead of the expected `x{{` token. This fixes that case. Pretty
+            // much always there should be no gap between an fstring-middle ending
+            // and the { op after it.
+            // Same deal for `}}}"`
+            const next_token = expected_py_tokens_.value[index + 1];
+            if ((std.mem.eql(u8, token.type, "FSTRING_MIDDLE") and std.mem.eql(u8, next_token.type, "OP")) or
+                (std.mem.eql(u8, token.type, "FSTRING_MIDDLE") and std.mem.eql(u8, next_token.type, "FSTRING_END")) and
+                token.end[0] == next_token.start[0] and
+                next_token.start[1] > token.end[1])
+            {
+                try expected_py_tokens.append(PyToken{
+                    .type = token.type,
+                    .start = token.start,
+                    .end = next_token.start,
+                });
+                continue;
+            }
+        }
+        try expected_py_tokens.append(token);
+    }
+
+    if (expected_py_tokens.items.len != py_tokens.items.len) {
         if (debug) {
             std.debug.print("--- expected:\n", .{});
-            for (expected_py_tokens.value) |expected_py_token|
+            for (expected_py_tokens.items) |expected_py_token|
                 std.debug.print("{s} {any} {any}\n", .{
                     expected_py_token.type,
                     expected_py_token.start,
@@ -78,7 +119,7 @@ fn check(allocator: std.mem.Allocator, file_path: []const u8, source: []const u8
         }
         return error.DifferentLengths;
     }
-    for (py_tokens.items, expected_py_tokens.value) |py_token, expected_py_token| {
+    for (py_tokens.items, expected_py_tokens.items) |py_token, expected_py_token| {
         if (debug)
             std.debug.print("EXPECTED {s} {any} {any} - GOT {s} {any} {any}\n", .{
                 expected_py_token.type,

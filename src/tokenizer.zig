@@ -16,6 +16,7 @@ pub const TokenType = enum(u8) {
     rbracket,
     lbrace,
     rbrace,
+    colon,
     op,
     _op_end,
 
@@ -86,7 +87,14 @@ pub const TokenIterator = struct {
     dedent_counter: u32 = 0,
 
     // f-string state
-    is_parsing_fstring: bool = false,
+    fstring_state: enum {
+        not_fstring,
+        in_fstring,
+        in_fstring_lbrace,
+        in_fstring_expr,
+        in_fstring_expr_modifier,
+        in_fstring_end,
+    } = .not_fstring,
     fstring_quote: ?[]const u8 = null,
 
     const Self = @This();
@@ -109,6 +117,11 @@ pub const TokenIterator = struct {
     fn peek(self: *Self) ?u8 {
         if (!self.is_in_bounds()) return null;
         return self.source[self.current_index];
+    }
+
+    fn peek_next(self: *Self) ?u8 {
+        if (self.current_index + 1 >= self.source.len) return null;
+        return self.source[self.current_index + 1];
     }
 
     fn advance(self: *Self) void {
@@ -170,7 +183,7 @@ pub const TokenIterator = struct {
         self.advance();
         const in_brackets = self.bracket_level > 0;
         const token_type: TokenType =
-            if (in_brackets or self.all_whitespace_on_this_line)
+            if (in_brackets or self.fstring_state == .in_fstring_expr or self.all_whitespace_on_this_line)
             .nl
         else
             .newline;
@@ -281,40 +294,87 @@ pub const TokenIterator = struct {
         return .{ prefix, quote };
     }
 
+    // TODO: nested f-strings, nested options etc. are not supported.
+    // Use the pep_701.py file from black's test suite to add test cases for it.
     fn fstring(self: *Self) !Token {
-        if (!self.is_parsing_fstring) {
-            const prefix, const quote = try self.string_prefix_and_quotes();
-            self.is_parsing_fstring = true;
-            self.fstring_quote = quote;
-            for (0..prefix.len) |_| self.advance();
-            for (0..quote.len) |_| self.advance();
-            return self.make_token(.fstring_start);
-        }
+        switch (self.fstring_state) {
+            .not_fstring => {
+                const prefix, const quote = try self.string_prefix_and_quotes();
+                self.fstring_quote = quote;
+                for (0..prefix.len) |_| self.advance();
+                for (0..quote.len) |_| self.advance();
+                self.fstring_state = .in_fstring;
+                return self.make_token(.fstring_start);
+            },
+            .in_fstring => {
+                const is_single_quote = self.fstring_quote.?.len == 1;
+                const start_index = self.current_index;
+                while (self.is_in_bounds()) {
+                    const char = self.source[self.current_index];
+                    // For single quotes, bail on newlines
+                    if (char == '\n' and is_single_quote) return error.UnterminatedString;
 
-        if (self.match(&.{self.fstring_quote.?}, .{})) {
-            for (0..self.fstring_quote.?.len) |_| self.advance();
-            self.is_parsing_fstring = false;
-            return self.make_token(.fstring_end);
-        }
+                    // Handle escapes
+                    if (char == '\\') {
+                        self.advance();
+                        self.advance_check_newline();
+                        continue;
+                    }
 
-        const is_single_quote = self.fstring_quote.?.len == 1;
-        while (self.is_in_bounds()) {
-            const char = self.source[self.current_index];
-            // For single quotes, bail on newlines
-            if (char == '\n' and is_single_quote) return error.UnterminatedString;
-
-            // Handle escapes
-            if (char == '\\') {
+                    // Find closing quote
+                    if (char == '{') {
+                        if (self.peek_next() == '{') {
+                            self.advance();
+                            self.advance();
+                            continue;
+                        } else {
+                            self.fstring_state = .in_fstring_lbrace;
+                            // If fstring-middle is empty, skip it by returning the next step token
+                            if (self.current_index == start_index) {
+                                return self.fstring();
+                            }
+                            return self.make_token(.fstring_middle);
+                        }
+                    }
+                    if (self.match(&.{self.fstring_quote.?}, .{})) {
+                        self.fstring_state = .in_fstring_end;
+                        // If fstring-middle is empty, skip it by returning the next step token
+                        if (self.current_index == start_index) {
+                            return self.fstring();
+                        }
+                        return self.make_token(.fstring_middle);
+                    }
+                    self.advance_check_newline();
+                }
+            },
+            .in_fstring_lbrace => {
                 self.advance();
-                self.advance_check_newline();
-                continue;
-            }
-
-            // Find closing quote
-            if (self.match(&.{self.fstring_quote.?}, .{})) {
-                return self.make_token(.fstring_middle);
-            }
-            self.advance_check_newline();
+                self.fstring_state = .in_fstring_expr;
+                return self.make_token(.lbrace);
+            },
+            .in_fstring_end => {
+                for (0..self.fstring_quote.?.len) |_| self.advance();
+                self.fstring_state = .not_fstring;
+                return self.make_token(.fstring_end);
+            },
+            .in_fstring_expr => {
+                // TODO: maybe for nested fstrings?
+                return error.NotImplemented;
+            },
+            .in_fstring_expr_modifier => {
+                while (self.is_in_bounds()) {
+                    const char = self.source[self.current_index];
+                    if (char == '\n' and self.fstring_quote.?.len == 1) {
+                        self.fstring_state = .in_fstring_expr;
+                        return self.make_token(.fstring_middle);
+                    } else if (char == '}') {
+                        self.fstring_state = .in_fstring_expr;
+                        return self.make_token(.fstring_middle);
+                    }
+                    self.advance_check_newline();
+                }
+                return error.UnexpectedEOF;
+            },
         }
         return error.UnexpectedEOF;
     }
@@ -425,7 +485,9 @@ pub const TokenIterator = struct {
             return self.endmarker();
         }
 
-        if (self.is_parsing_fstring) return self.fstring();
+        // f-string check
+        if (self.fstring_state != .not_fstring and self.fstring_state != .in_fstring_expr)
+            return self.fstring();
 
         const current_char = self.source[self.current_index];
         // Newline check
@@ -445,7 +507,7 @@ pub const TokenIterator = struct {
         }
 
         // Indent / dedent checks
-        if (self.byte_offset == 0 and self.bracket_level == 0 and !self.is_parsing_fstring) {
+        if (self.byte_offset == 0 and self.bracket_level == 0 and self.fstring_state == .not_fstring) {
             const indent_token = self.indent() catch |err| switch (err) {
                 error.NotAnIndent => null,
                 else => return err,
@@ -496,7 +558,7 @@ pub const TokenIterator = struct {
                 if (self.peek() == '>') self.advance();
                 return self.make_token(.op);
             },
-            ',', ':', ';' => {
+            ',', ';' => {
                 self.advance();
                 return self.make_token(.op);
             },
@@ -527,8 +589,20 @@ pub const TokenIterator = struct {
             },
             '}' => {
                 self.advance();
-                self.bracket_level -|= 1;
+                // TODO: bracket level should be a stack, and we should check if bracket_level == 0
+                if (self.fstring_state == .in_fstring_expr) {
+                    self.fstring_state = .in_fstring;
+                } else {
+                    self.bracket_level -|= 1;
+                }
                 return self.make_token(.rbrace);
+            },
+            ':' => {
+                self.advance();
+                if (self.fstring_state == .in_fstring_expr) {
+                    self.fstring_state = .in_fstring_expr_modifier;
+                }
+                return self.make_token(.op);
             },
             '.', '0'...'9' => {
                 if (self.current_index + 2 <= self.source.len and
