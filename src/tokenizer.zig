@@ -81,6 +81,7 @@ pub const TokenIterator = struct {
     all_whitespace_on_this_line: bool = true,
 
     bracket_level: u32 = 0,
+    bracket_level_stack: std.ArrayList(u32),
     prev_token: ?Token = null,
 
     indent_stack: std.ArrayList([]const u8),
@@ -102,12 +103,17 @@ pub const TokenIterator = struct {
     pub fn init(allocator: std.mem.Allocator, source: []const u8) Self {
         return Self{
             .indent_stack = std.ArrayList([]const u8).init(allocator),
+            .bracket_level_stack = std.ArrayList(u32).init(allocator),
             .source = source,
         };
     }
 
     pub fn deinit(self: *Self) void {
+        // TODO: enable these two when nested fstrings are implemented
+        // std.debug.assert(self.indent_stack.items.len == 0);
         self.indent_stack.deinit();
+        // std.debug.assert(self.bracket_level_stack.items.len == 0);
+        self.bracket_level_stack.deinit();
     }
 
     fn is_in_bounds(self: *Self) bool {
@@ -350,6 +356,8 @@ pub const TokenIterator = struct {
             .in_fstring_lbrace => {
                 self.advance();
                 self.fstring_state = .in_fstring_expr;
+                try self.bracket_level_stack.append(self.bracket_level);
+                self.bracket_level = 0;
                 return self.make_token(.lbrace);
             },
             .in_fstring_end => {
@@ -589,9 +597,9 @@ pub const TokenIterator = struct {
             },
             '}' => {
                 self.advance();
-                // TODO: bracket level should be a stack, and we should check if bracket_level == 0
-                if (self.fstring_state == .in_fstring_expr) {
+                if (self.bracket_level == 0 and self.fstring_state == .in_fstring_expr) {
                     self.fstring_state = .in_fstring;
+                    self.bracket_level = self.bracket_level_stack.pop();
                 } else {
                     self.bracket_level -|= 1;
                 }
@@ -599,10 +607,13 @@ pub const TokenIterator = struct {
             },
             ':' => {
                 self.advance();
-                if (self.fstring_state == .in_fstring_expr) {
+                if (self.bracket_level == 0 and self.fstring_state == .in_fstring_expr) {
                     self.fstring_state = .in_fstring_expr_modifier;
+                    return self.make_token(.op);
+                } else {
+                    if (self.peek() == '=') self.advance();
+                    return self.make_token(.op);
                 }
-                return self.make_token(.op);
             },
             '.', '0'...'9' => {
                 if (self.current_index + 2 <= self.source.len and
