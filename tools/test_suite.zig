@@ -153,16 +153,9 @@ pub fn main() !u8 {
     var args = std.process.args();
     _ = args.skip(); // proc name
 
-    const test_number_arg = blk: {
-        if (args.next()) |arg| {
-            if (all_digits(arg)) {
-                break :blk arg;
-            }
-        }
-        break :blk null;
-    };
+    const filename_arg = args.next();
     // Print debug info when a specific test is run
-    const single_run = test_number_arg != null;
+    const single_run = filename_arg != null;
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer std.debug.assert(gpa.deinit() == .ok);
@@ -179,7 +172,7 @@ pub fn main() !u8 {
         dir_path,
         .{ .iterate = true },
     );
-    if (test_number_arg == null) {
+    if (filename_arg == null) {
         var dir_iterator = test_suite_dir.iterate();
         while (try dir_iterator.next()) |entry| {
             if (entry.kind != .file) continue;
@@ -192,18 +185,10 @@ pub fn main() !u8 {
 
         std.sort.heap([]const u8, test_file_names.items, {}, compare_strings);
     } else {
-        const file_name = try std.fmt.allocPrint(allocator, "test_{s}.py", .{test_number_arg.?});
-        _ = test_suite_dir.statFile(file_name) catch |err| {
-            defer allocator.free(file_name);
-            switch (err) {
-                std.fs.File.OpenError.FileNotFound => {
-                    std.debug.print("Error: Test file {s} not found", .{file_name});
-                    return 2;
-                },
-                else => return err,
-            }
-        };
-        // Stat succeeded, file exists, run it
+        const file_name = if (all_digits(filename_arg.?))
+            try std.fmt.allocPrint(allocator, "test_{s}.py", .{filename_arg.?})
+        else
+            try allocator.dupe(u8, filename_arg.?);
         try test_file_names.append(file_name);
     }
 
@@ -212,15 +197,27 @@ pub fn main() !u8 {
 
     var failed = false;
     for (test_file_names.items) |file_name| {
-        const source = try test_suite_dir.readFileAlloc(
+        const file_path = if (std.mem.startsWith(u8, file_name, "test_"))
+            try std.fs.path.join(allocator, &.{ dir_path, file_name })
+        else
+            try allocator.dupe(u8, file_name);
+        defer allocator.free(file_path);
+
+        const source = std.fs.cwd().readFileAlloc(
             allocator,
-            file_name,
+            file_path,
             std.math.maxInt(u32),
-        );
+        ) catch |err| {
+            switch (err) {
+                std.fs.File.OpenError.FileNotFound => {
+                    std.debug.print("Error: Test file {s} not found\n", .{file_name});
+                    return 2;
+                },
+                else => return err,
+            }
+        };
         defer allocator.free(source);
 
-        const file_path = try std.fs.path.join(allocator, &.{ dir_path, file_name });
-        defer allocator.free(file_path);
         check(allocator, file_path, source, single_run) catch |err| {
             if (single_run) return err;
             std.debug.print("\x1b[1;31mF\x1b[m", .{});
