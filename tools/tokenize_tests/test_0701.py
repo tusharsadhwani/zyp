@@ -16,14 +16,14 @@ x = f"foo {
     2 + 2
 } bar baz"
 
-# x = f"foo {f'ab'} bar"
+x = f"foo {f'ab'} bar"
 
-# x = f"foo {{ {"a  {2 + 2}  b"}bar {{ baz"
-# x = f"foo {{ {f'a  {2 + 2}  b'}bar {{ baz"
-# x = f"foo {{ {f"a  {2 + 2}  b"}bar {{ baz"
+x = f"foo {{ {"a  {2 + 2}  b"}bar {{ baz"
+x = f"foo {{ {f'a  {2 + 2}  b'}bar {{ baz"
+x = f"foo {{ {f"a  {2 + 2}  b"}bar {{ baz"
 
-# x = f"foo {{ {f'a  {f"a  {2 + 2}  b"}  b'}bar {{ baz"
-# x = f"foo {{ {f"a  {f"a  {2 + 2}  b"}  b"}bar {{ baz"
+x = f"foo {{ {f'a  {f"a  {2 + 2}  b"}  b'}bar {{ baz"
+x = f"foo {{ {f"a  {f"a  {2 + 2}  b"}  b"}bar {{ baz"
 
 x = """foo {{ {2 + 2}bar
 baz"""
@@ -60,8 +60,8 @@ abc"""
 f"""foo {2+2} bar
 """
 
-# f' \' {f"'"} \' '
-# f" \" {f'"'} \" "
+f' \' {f"'"} \' '
+f" \" {f'"'} \" "
 
 x = f"a{2+2:=^72}b"
 x = f"a{2+2:x}b"
@@ -109,10 +109,10 @@ got {escape}"
 # x = f'\N{GREEK CAPITAL LETTER DELTA} \N{SNOWMAN} {x}'
 # fr'\{{\}}'
 
-# f"""
-#     WITH {f'''
-#     {1}_cte AS ()'''}
-# """
+f"""
+    WITH {f'''
+    {1}_cte AS ()'''}
+"""
 
 value: str = f'''foo
 '''
@@ -133,7 +133,7 @@ f"""{'''
 '''}"""
 
 f"{'\''}"
-# f"{f'\''}"
+f"{f'\''}"
 
 # f'{1}\{{'
 # f'{2} foo \{{[\}}'

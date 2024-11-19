@@ -70,6 +70,78 @@ fn is_whitespace(char: u8) bool {
     return char == ' ' or char == '\r' or char == '\t' or char == '\x0b' or char == '\x0c';
 }
 
+pub const FStringState = struct {
+    const State = enum(u8) {
+        not_fstring,
+        in_fstring,
+        in_fstring_lbrace,
+        in_fstring_expr,
+        in_fstring_expr_modifier,
+        in_fstring_end,
+    };
+
+    const Self = @This();
+
+    state: State,
+    stack: std.ArrayList(State),
+
+    pub fn init(allocator: std.mem.Allocator) Self {
+        return Self{
+            .state = .not_fstring,
+            .stack = std.ArrayList(State).init(allocator),
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        std.debug.assert(self.stack.items.len == 0);
+        self.stack.deinit();
+    }
+
+    pub fn enter_fstring(self: *Self) !void {
+        try self.stack.append(self.state);
+        self.state = .in_fstring;
+    }
+
+    pub fn leave_fstring(self: *Self) void {
+        std.debug.assert(self.state == .in_fstring_end);
+        self.state = self.stack.pop();
+    }
+
+    pub fn consume_fstring_middle_for_lbrace(self: *Self) void {
+        self.state = .in_fstring_lbrace;
+    }
+    pub fn consume_fstring_middle_for_end(self: *Self) void {
+        self.state = .in_fstring_end;
+    }
+
+    pub fn consume_lbrace(self: *Self) !void {
+        switch (self.state) {
+            .in_fstring_lbrace => {
+                self.state = .in_fstring_expr;
+            },
+            .in_fstring_expr_modifier => {
+                try self.stack.append(self.state);
+                self.state = .in_fstring_expr;
+            },
+            else => unreachable,
+        }
+    }
+
+    pub fn consume_rbrace(self: *Self) void {
+        std.debug.assert(self.state == .in_fstring_expr or self.state == .in_fstring_expr_modifier);
+
+        if (self.stack.len > 0 and self.stack.getLast() == .in_fstring_expr_modifier) {
+            _ = self.stack.pop();
+        }
+        self.state = .in_fstring;
+    }
+
+    pub fn consume_colon(self: *Self) void {
+        std.debug.assert(self.state == .in_fstring_expr);
+        self.state = .in_fstring_expr_modifier;
+    }
+};
+
 pub const TokenIterator = struct {
     source: []const u8,
     current_index: u32 = 0,
@@ -88,32 +160,30 @@ pub const TokenIterator = struct {
     dedent_counter: u32 = 0,
 
     // f-string state
-    fstring_state: enum {
-        not_fstring,
-        in_fstring,
-        in_fstring_lbrace,
-        in_fstring_expr,
-        in_fstring_expr_modifier,
-        in_fstring_end,
-    } = .not_fstring,
+    fstring_state: FStringState,
+    fstring_quote_stack: std.ArrayList([]const u8),
     fstring_quote: ?[]const u8 = null,
 
     const Self = @This();
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8) Self {
         return Self{
+            .source = source,
             .indent_stack = std.ArrayList([]const u8).init(allocator),
             .bracket_level_stack = std.ArrayList(u32).init(allocator),
-            .source = source,
+            .fstring_state = FStringState.init(allocator),
+            .fstring_quote_stack = std.ArrayList([]const u8).init(allocator),
         };
     }
 
     pub fn deinit(self: *Self) void {
-        // TODO: enable these two when nested fstrings are implemented
-        // std.debug.assert(self.indent_stack.items.len == 0);
+        std.debug.assert(self.indent_stack.items.len == 0);
         self.indent_stack.deinit();
-        // std.debug.assert(self.bracket_level_stack.items.len == 0);
+        std.debug.assert(self.bracket_level_stack.items.len == 0);
         self.bracket_level_stack.deinit();
+        self.fstring_state.deinit();
+        std.debug.assert(self.fstring_quote == null);
+        self.fstring_quote_stack.deinit();
     }
 
     fn is_in_bounds(self: *Self) bool {
@@ -185,11 +255,24 @@ pub const TokenIterator = struct {
         return token;
     }
 
+    fn push_fstring_quote(self: *Self, quote: []const u8) !void {
+        if (self.fstring_quote) |fstring_quote| {
+            try self.fstring_quote_stack.append(fstring_quote);
+        }
+        self.fstring_quote = quote;
+    }
+
+    fn pop_fstring_quote(self: *Self) !void {
+        if (self.fstring_quote == null)
+            return error.Underflow;
+        self.fstring_quote = self.fstring_quote_stack.popOrNull();
+    }
+
     fn newline(self: *Self) Token {
         self.advance();
         const in_brackets = self.bracket_level > 0;
         const token_type: TokenType =
-            if (in_brackets or self.fstring_state == .in_fstring_expr or self.all_whitespace_on_this_line)
+            if (in_brackets or self.fstring_state.state == .in_fstring_expr or self.all_whitespace_on_this_line)
             .nl
         else
             .newline;
@@ -300,16 +383,14 @@ pub const TokenIterator = struct {
         return .{ prefix, quote };
     }
 
-    // TODO: nested f-strings, nested options etc. are not supported.
-    // Use the pep_701.py file from black's test suite to add test cases for it.
     fn fstring(self: *Self) !Token {
-        switch (self.fstring_state) {
-            .not_fstring => {
+        switch (self.fstring_state.state) {
+            .not_fstring, .in_fstring_expr => {
                 const prefix, const quote = try self.string_prefix_and_quotes();
-                self.fstring_quote = quote;
+                try self.push_fstring_quote(quote);
                 for (0..prefix.len) |_| self.advance();
                 for (0..quote.len) |_| self.advance();
-                self.fstring_state = .in_fstring;
+                try self.fstring_state.enter_fstring();
                 return self.make_token(.fstring_start);
             },
             .in_fstring => {
@@ -334,7 +415,7 @@ pub const TokenIterator = struct {
                             self.advance();
                             continue;
                         } else {
-                            self.fstring_state = .in_fstring_lbrace;
+                            self.fstring_state.consume_fstring_middle_for_lbrace();
                             // If fstring-middle is empty, skip it by returning the next step token
                             if (self.current_index == start_index) {
                                 return self.fstring();
@@ -343,7 +424,7 @@ pub const TokenIterator = struct {
                         }
                     }
                     if (self.match(&.{self.fstring_quote.?}, .{})) {
-                        self.fstring_state = .in_fstring_end;
+                        self.fstring_state.consume_fstring_middle_for_end();
                         // If fstring-middle is empty, skip it by returning the next step token
                         if (self.current_index == start_index) {
                             return self.fstring();
@@ -352,31 +433,29 @@ pub const TokenIterator = struct {
                     }
                     self.advance_check_newline();
                 }
+                return error.UnexpectedEOF;
             },
             .in_fstring_lbrace => {
                 self.advance();
-                self.fstring_state = .in_fstring_expr;
                 try self.bracket_level_stack.append(self.bracket_level);
                 self.bracket_level = 0;
+                try self.fstring_state.consume_lbrace();
                 return self.make_token(.lbrace);
             },
             .in_fstring_end => {
                 for (0..self.fstring_quote.?.len) |_| self.advance();
-                self.fstring_state = .not_fstring;
+                try self.pop_fstring_quote();
+                self.fstring_state.leave_fstring();
                 return self.make_token(.fstring_end);
-            },
-            .in_fstring_expr => {
-                // TODO: maybe for nested fstrings?
-                return error.NotImplemented;
             },
             .in_fstring_expr_modifier => {
                 while (self.is_in_bounds()) {
                     const char = self.source[self.current_index];
                     if (char == '\n' and self.fstring_quote.?.len == 1) {
-                        self.fstring_state = .in_fstring_expr;
+                        self.fstring_state.state = .in_fstring_expr;
                         return self.make_token(.fstring_middle);
                     } else if (char == '}') {
-                        self.fstring_state = .in_fstring_expr;
+                        self.fstring_state.state = .in_fstring_expr;
                         return self.make_token(.fstring_middle);
                     }
                     self.advance_check_newline();
@@ -384,7 +463,6 @@ pub const TokenIterator = struct {
                 return error.UnexpectedEOF;
             },
         }
-        return error.UnexpectedEOF;
     }
 
     fn string(self: *Self) !Token {
@@ -494,7 +572,7 @@ pub const TokenIterator = struct {
         }
 
         // f-string check
-        if (self.fstring_state != .not_fstring and self.fstring_state != .in_fstring_expr)
+        if (self.fstring_state.state != .not_fstring and self.fstring_state.state != .in_fstring_expr)
             return self.fstring();
 
         const current_char = self.source[self.current_index];
@@ -515,7 +593,7 @@ pub const TokenIterator = struct {
         }
 
         // Indent / dedent checks
-        if (self.byte_offset == 0 and self.bracket_level == 0 and self.fstring_state == .not_fstring) {
+        if (self.byte_offset == 0 and self.bracket_level == 0 and self.fstring_state.state == .not_fstring) {
             const indent_token = self.indent() catch |err| switch (err) {
                 error.NotAnIndent => null,
                 else => return err,
@@ -597,8 +675,8 @@ pub const TokenIterator = struct {
             },
             '}' => {
                 self.advance();
-                if (self.bracket_level == 0 and self.fstring_state == .in_fstring_expr) {
-                    self.fstring_state = .in_fstring;
+                if (self.bracket_level == 0 and self.fstring_state.state == .in_fstring_expr) {
+                    self.fstring_state.state = .in_fstring;
                     self.bracket_level = self.bracket_level_stack.pop();
                 } else {
                     self.bracket_level -|= 1;
@@ -607,8 +685,8 @@ pub const TokenIterator = struct {
             },
             ':' => {
                 self.advance();
-                if (self.bracket_level == 0 and self.fstring_state == .in_fstring_expr) {
-                    self.fstring_state = .in_fstring_expr_modifier;
+                if (self.bracket_level == 0 and self.fstring_state.state == .in_fstring_expr) {
+                    self.fstring_state.state = .in_fstring_expr_modifier;
                     return self.make_token(.op);
                 } else {
                     if (self.peek() == '=') self.advance();
