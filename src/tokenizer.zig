@@ -287,8 +287,10 @@ pub const TokenIterator = struct {
     fn decimal(self: *Self) Token {
         while (self.is_in_bounds() and std.ascii.isDigit(self.source[self.current_index])) self.advance();
         if (self.is_in_bounds() and self.source[self.current_index] == '.') self.advance();
+        const decimal_index = self.current_index;
         while (self.is_in_bounds() and std.ascii.isDigit(self.source[self.current_index])) self.advance();
-        if (self.is_in_bounds() and (self.source[self.current_index] == 'e' or self.source[self.current_index] == 'E')) {
+        // Before advancing over the 'e', ensure that at least 1 digit is between the '.' and the 'e'
+        if (self.is_in_bounds() and self.current_index > decimal_index and (self.source[self.current_index] == 'e' or self.source[self.current_index] == 'E')) {
             self.advance();
             if (self.is_in_bounds() and self.source[self.current_index] == '-') self.advance();
         }
@@ -783,6 +785,28 @@ test TokenIterator {
         .{ .endmarker, "" },
     };
     try validate_tokens(std.testing.allocator, source, &expected_tokens);
+
+    const dot_e_source =
+        \\x = []
+        \\x.extend([1])
+    ;
+    var dot_e_expected_tokens = [_]TokenTuple{
+        .{ .name, "x" },
+        .{ .op, "=" },
+        .{ .lbracket, "[" },
+        .{ .rbracket, "]" },
+        .{ .number, "1" },
+        .{ .newline, "\n" },
+        .{ .name, "x" },
+        .{ .op, "." },
+        .{ .name, "extend" },
+        .{ .lparen, "(" },
+        .{ .number, "1" },
+        .{ .rparen, ")" },
+        .{ .newline, "\n" },
+        .{ .endmarker, "" },
+    };
+    try validate_tokens(std.testing.allocator, dot_e_source, &dot_e_expected_tokens);
 }
 
 test "blank source" {
