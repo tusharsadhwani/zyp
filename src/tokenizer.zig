@@ -52,7 +52,7 @@ pub const Token = struct {
 
     pub fn to_byte_slice(self: *const Self, source: []const u8) []const u8 {
         // Newline at end of file may not exist in the file
-        if (self.type == .newline and self.start_index == source.len and self.end_index == source.len + 1)
+        if ((self.type == .newline or self.type == .nl) and self.start_index == source.len and self.end_index == source.len + 1)
             return "\n";
 
         // Dedents at end of file also may not exist in the file
@@ -788,7 +788,7 @@ test TokenIterator {
 test "blank source" {
     const source = "";
     var expected_tokens = [_]TokenTuple{
-        .{ .newline, "\n" },
+        .{ .nl, "\n" },
         .{ .endmarker, "" },
     };
     try validate_tokens(std.testing.allocator, source, &expected_tokens);
