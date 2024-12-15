@@ -2,4 +2,7 @@
 zig-out
 *.pyc
 
+.vscode
+
+# Local test suite results stored here, to check for regressions
 tools/tokenize_tests/test_suite_last_result.json

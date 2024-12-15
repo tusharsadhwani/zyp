@@ -289,7 +289,8 @@ pub fn main() !u8 {
         }
         const failed_tests_str = try std.mem.join(allocator, "\n", failed_tests.items);
         defer allocator.free(failed_tests_str);
-        std.debug.print("\x1b[1;31mFailed tests:\x1b[m\n{s}\n\n", .{failed_tests_str});
+        if (failed)
+            std.debug.print("\x1b[1;31mFailed tests:\x1b[m\n{s}\n\n", .{failed_tests_str});
         if (regressions) |reg|
             if (reg.items.len > 0) {
                 const regressed_tests_str = try std.mem.join(allocator, "\n", reg.items);
