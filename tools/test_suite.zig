@@ -51,6 +51,7 @@ fn check(allocator: std.mem.Allocator, file_path: []const u8, source: []const u8
             file_path,
         },
         .env_map = &env_map,
+        .max_output_bytes = 1024 * 1024, // 1MB buffer
     });
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
