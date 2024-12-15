@@ -149,14 +149,64 @@ fn compare_strings(_: void, lhs: []const u8, rhs: []const u8) bool {
     return std.mem.order(u8, lhs, rhs).compare(std.math.CompareOperator.lt);
 }
 
+/// Resolve file and directory paths recursively, and return a list of Python files
+/// present in the given paths.
+pub fn get_python_files(al: std.mem.Allocator, path: []u8, debug: bool) !std.ArrayList([]u8) {
+    var files = std.ArrayList([]u8).init(al);
+    errdefer files.deinit();
+    try _get_python_files(al, &files, path, debug);
+    return files;
+}
+fn _get_python_files(al: std.mem.Allocator, files: *std.ArrayList([]u8), path: []u8, debug: bool) !void {
+    // openFile fails on symlinks that point to paths that don't exist, skip those
+    const file = std.fs.cwd().openFile(path, .{}) catch |err| {
+        if (err == std.fs.File.OpenError.ProcessFdQuotaExceeded) return err;
+        if (debug) std.debug.print("Failed to open {s}: {s}\n", .{ path, @errorName(err) });
+        return;
+    };
+    defer file.close();
+
+    const stat = try file.stat();
+    if (debug) std.debug.print("Path {s} is a {s}\n", .{ path, @tagName(stat.kind) });
+    switch (stat.kind) {
+        .file => {
+            if (std.mem.eql(u8, std.fs.path.extension(path), ".py")) {
+                if (debug) std.debug.print("Storing python file {s}\n", .{path});
+                try files.append(try al.dupe(u8, path));
+            }
+        },
+        .directory => {
+            // openDir fails on symlinks when .no_follow is given, skip those
+            var dir = std.fs.cwd().openDir(
+                path,
+                .{ .iterate = true, .no_follow = true },
+            ) catch |err| {
+                if (debug) std.debug.print("Failed to open {s}: {s}\n", .{ path, @errorName(err) });
+                return;
+            };
+            defer dir.close();
+
+            var entries = dir.iterate();
+            while (try entries.next()) |entry| {
+                // Ignore dotted files / folders
+                if (entry.name[0] == '.') {
+                    if (debug) std.debug.print("Skipping hidden path {s}\n", .{entry.name});
+                    continue;
+                }
+                const child_path = try std.fs.path.join(al, &.{ path, entry.name });
+                defer al.free(child_path);
+                try _get_python_files(al, files, child_path, debug);
+            }
+        },
+        else => {},
+    }
+}
+
 pub fn main() !u8 {
     var args = std.process.args();
     _ = args.skip(); // proc name
 
     const filename_arg = args.next();
-    // Print debug info when a specific test is run
-    const single_run = filename_arg != null;
-
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer std.debug.assert(gpa.deinit() == .ok);
     const allocator = gpa.allocator();
@@ -189,12 +239,29 @@ pub fn main() !u8 {
             try std.fmt.allocPrint(allocator, "test_{s}.py", .{filename_arg.?})
         else
             try allocator.dupe(u8, filename_arg.?);
-        try test_file_names.append(file_name);
+
+        // Check if directory
+        if (!all_digits(filename_arg.?)) {
+            const stat = try std.fs.cwd().statFile(file_name);
+            if (stat.kind == .directory) {
+                const files = try get_python_files(allocator, file_name, false);
+                defer files.deinit();
+                for (files.items) |file|
+                    try test_file_names.append(file);
+
+                allocator.free(file_name);
+            } else {
+                try test_file_names.append(file_name);
+            }
+        } else {
+            try test_file_names.append(file_name);
+        }
     }
 
     var test_results = std.json.ObjectMap.init(allocator);
     defer test_results.deinit();
 
+    const single_run = test_file_names.items.len == 1;
     var failed = false;
     for (test_file_names.items) |file_name| {
         const file_path = if (std.mem.startsWith(u8, file_name, "test_"))
