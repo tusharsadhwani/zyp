@@ -53,7 +53,7 @@ pub const Token = struct {
     pub fn to_byte_slice(self: *const Self, source: []const u8) []const u8 {
         // Newline at end of file may not exist in the file
         if ((self.type == .newline or self.type == .nl) and self.start_index == source.len and self.end_index == source.len + 1)
-            return "\n";
+            return "";
 
         // Dedents at end of file also may not exist in the file
         if (self.type == .dedent and self.start_index == source.len + 1 and self.end_index == source.len + 1)
@@ -62,6 +62,7 @@ pub const Token = struct {
         // Endmarkers are out of bound too
         if (self.type == .endmarker)
             return "";
+
         return source[self.start_index..self.end_index];
     }
 };
@@ -567,7 +568,7 @@ pub const TokenIterator = struct {
 
         // EOF checks
         if (self.current_index == self.source.len) {
-            const prev_token = self.prev_token orelse return self.newline();
+            const prev_token = self.prev_token orelse return self.endmarker();
             if (prev_token.type == .newline or prev_token.type == .nl or prev_token.type == .dedent) {
                 return self.endmarker();
             } else {
@@ -769,6 +770,7 @@ test TokenIterator {
     const source: []const u8 =
         \\x = 1
         \\print(x)
+        \\
     ;
     var expected_tokens = [_]TokenTuple{
         .{ .name, "x" },
@@ -792,18 +794,21 @@ test TokenIterator {
     ;
     var dot_e_expected_tokens = [_]TokenTuple{
         .{ .name, "x" },
+        .{ .whitespace, " " },
         .{ .op, "=" },
+        .{ .whitespace, " " },
         .{ .lbracket, "[" },
         .{ .rbracket, "]" },
-        .{ .number, "1" },
         .{ .newline, "\n" },
         .{ .name, "x" },
         .{ .op, "." },
         .{ .name, "extend" },
         .{ .lparen, "(" },
+        .{ .lbracket, "[" },
         .{ .number, "1" },
+        .{ .rbracket, "]" },
         .{ .rparen, ")" },
-        .{ .newline, "\n" },
+        .{ .newline, "" },
         .{ .endmarker, "" },
     };
     try validate_tokens(std.testing.allocator, dot_e_source, &dot_e_expected_tokens);
@@ -812,7 +817,27 @@ test TokenIterator {
 test "blank source" {
     const source = "";
     var expected_tokens = [_]TokenTuple{
+        .{ .endmarker, "" },
+    };
+    try validate_tokens(std.testing.allocator, source, &expected_tokens);
+
+    const with_newline = "\n";
+    var with_newline_tokens = [_]TokenTuple{
         .{ .nl, "\n" },
+        .{ .endmarker, "" },
+    };
+    try validate_tokens(std.testing.allocator, with_newline, &with_newline_tokens);
+}
+
+test "source with no newline at the end" {
+    const source = "x = 1";
+    var expected_tokens = [_]TokenTuple{
+        .{ .name, "x" },
+        .{ .whitespace, " " },
+        .{ .op, "=" },
+        .{ .whitespace, " " },
+        .{ .number, "1" },
+        .{ .newline, "" },
         .{ .endmarker, "" },
     };
     try validate_tokens(std.testing.allocator, source, &expected_tokens);
