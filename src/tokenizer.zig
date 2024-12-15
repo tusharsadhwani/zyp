@@ -289,8 +289,8 @@ pub const TokenIterator = struct {
         var start_index = self.current_index;
         while (self.is_in_bounds() and std.ascii.isDigit(self.source[self.current_index])) self.advance();
         if (self.is_in_bounds() and self.source[self.current_index] == '.') {
-            start_index = self.current_index;
             self.advance();
+            start_index = self.current_index;
         }
         while (self.is_in_bounds() and std.ascii.isDigit(self.source[self.current_index])) self.advance();
         // Before advancing over the 'e', ensure that at least 1 digit is between the '.' and the 'e', or that there has been at least 1 digit before the 'e'
