@@ -73,11 +73,11 @@ fn is_whitespace(char: u8) bool {
 pub const FStringState = struct {
     const State = enum(u8) {
         not_fstring,
-        in_fstring,
-        in_fstring_lbrace,
+        at_fstring_middle,
+        at_fstring_lbrace,
         in_fstring_expr,
         in_fstring_expr_modifier,
-        in_fstring_end,
+        at_fstring_end,
     };
 
     const Self = @This();
@@ -93,47 +93,42 @@ pub const FStringState = struct {
     }
 
     pub fn deinit(self: *Self) void {
+        std.debug.assert(self.state == .not_fstring);
         std.debug.assert(self.stack.items.len == 0);
         self.stack.deinit();
     }
 
     pub fn enter_fstring(self: *Self) !void {
         try self.stack.append(self.state);
-        self.state = .in_fstring;
+        self.state = .at_fstring_middle;
     }
 
     pub fn leave_fstring(self: *Self) void {
-        std.debug.assert(self.state == .in_fstring_end);
+        std.debug.assert(self.state == .at_fstring_end);
         self.state = self.stack.pop();
     }
 
-    pub fn consume_fstring_middle_for_lbrace(self: *Self) void {
-        self.state = .in_fstring_lbrace;
+    pub fn consume_fstring_middle_for_lbrace(self: *Self) !void {
+        if (self.state == .in_fstring_expr_modifier)
+            try self.stack.append(self.state);
+        self.state = .at_fstring_lbrace;
     }
     pub fn consume_fstring_middle_for_end(self: *Self) void {
-        self.state = .in_fstring_end;
+        self.state = .at_fstring_end;
     }
 
     pub fn consume_lbrace(self: *Self) !void {
-        switch (self.state) {
-            .in_fstring_lbrace => {
-                self.state = .in_fstring_expr;
-            },
-            .in_fstring_expr_modifier => {
-                try self.stack.append(self.state);
-                self.state = .in_fstring_expr;
-            },
-            else => unreachable,
-        }
+        self.state = .in_fstring_expr;
     }
 
     pub fn consume_rbrace(self: *Self) void {
         std.debug.assert(self.state == .in_fstring_expr or self.state == .in_fstring_expr_modifier);
 
-        if (self.stack.len > 0 and self.stack.getLast() == .in_fstring_expr_modifier) {
-            _ = self.stack.pop();
+        if (self.stack.items.len > 0 and self.stack.getLast() == .in_fstring_expr_modifier) {
+            self.state = self.stack.pop();
+        } else {
+            self.state = .at_fstring_middle;
         }
-        self.state = .in_fstring;
     }
 
     pub fn consume_colon(self: *Self) void {
@@ -393,7 +388,7 @@ pub const TokenIterator = struct {
                 try self.fstring_state.enter_fstring();
                 return self.make_token(.fstring_start);
             },
-            .in_fstring => {
+            .at_fstring_middle => {
                 const is_single_quote = self.fstring_quote.?.len == 1;
                 const start_index = self.current_index;
                 while (self.is_in_bounds()) {
@@ -408,14 +403,14 @@ pub const TokenIterator = struct {
                         continue;
                     }
 
-                    // Find closing quote
+                    // Find opening / closing quote
                     if (char == '{') {
                         if (self.peek_next() == '{') {
                             self.advance();
                             self.advance();
                             continue;
                         } else {
-                            self.fstring_state.consume_fstring_middle_for_lbrace();
+                            try self.fstring_state.consume_fstring_middle_for_lbrace();
                             // If fstring-middle is empty, skip it by returning the next step token
                             if (self.current_index == start_index) {
                                 return self.fstring();
@@ -435,24 +430,34 @@ pub const TokenIterator = struct {
                 }
                 return error.UnexpectedEOF;
             },
-            .in_fstring_lbrace => {
+            .at_fstring_lbrace => {
                 self.advance();
                 try self.bracket_level_stack.append(self.bracket_level);
                 self.bracket_level = 0;
                 try self.fstring_state.consume_lbrace();
                 return self.make_token(.lbrace);
             },
-            .in_fstring_end => {
+            .at_fstring_end => {
                 for (0..self.fstring_quote.?.len) |_| self.advance();
                 try self.pop_fstring_quote();
                 self.fstring_state.leave_fstring();
                 return self.make_token(.fstring_end);
             },
             .in_fstring_expr_modifier => {
+                const start_index = self.current_index;
                 while (self.is_in_bounds()) {
                     const char = self.source[self.current_index];
-                    if (char == '\n' and self.fstring_quote.?.len == 1) {
-                        self.fstring_state.state = .in_fstring_expr;
+                    if ((char == '\n' or char == '{') and self.fstring_quote.?.len == 1) {
+                        if (char == '{') {
+                            try self.fstring_state.consume_fstring_middle_for_lbrace();
+                        } else {
+                            // TODO: why?
+                            self.fstring_state.state = .in_fstring_expr;
+                        }
+                        // If fstring-middle is empty, skip it by returning the next step token
+                        if (self.current_index == start_index) {
+                            return self.fstring();
+                        }
                         return self.make_token(.fstring_middle);
                     } else if (char == '}') {
                         self.fstring_state.state = .in_fstring_expr;
@@ -676,11 +681,11 @@ pub const TokenIterator = struct {
             '}' => {
                 self.advance();
                 if (self.bracket_level == 0 and self.fstring_state.state == .in_fstring_expr) {
-                    self.fstring_state.state = .in_fstring;
                     self.bracket_level = self.bracket_level_stack.pop();
                 } else {
                     self.bracket_level -|= 1;
                 }
+                self.fstring_state.consume_rbrace();
                 return self.make_token(.rbrace);
             },
             ':' => {

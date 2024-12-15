@@ -69,11 +69,11 @@ x = f"a{2+2:x}b"
 rf'foo'
 rf'{foo}'
 
-# f"{x:{y}d}"
+f"{x:{y}d}"
 
-# x = f"a{2+2:=^{x}}b"
-# x = f"a{2+2:=^{foo(x+y**2):something else}}b"
-# x = f"a{2+2:=^{foo(x+y**2):something else}one more}b"
+x = f"a{2+2:=^{x}}b"
+x = f"a{2+2:=^{foo(x+y**2):something else}}b"
+x = f"a{2+2:=^{foo(x+y**2):something else}one more}b"
 f'{(abc:=10)}'
 f'{abc:=10}'
 (f'{abc:=10}')
@@ -123,9 +123,9 @@ log(
     level=0,
 )
 
-# f"{1:{f'{2}'}}"
-# f'{1:{f'{2}'}}'
-# f'{1:{2}d}'
+f"{1:{f'{2}'}}"
+f'{1:{f'{2}'}}'
+f'{1:{2}d}'
 
 # f'{{\\"kind\\":\\"ConfigMap\\",\\"metadata\\":{{\\"annotations\\":{{}},\\"name\\":\\"cluster-info\\",\\"namespace\\":\\"amazon-cloudwatch\\"}}}}'
 
