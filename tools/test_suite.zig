@@ -320,7 +320,7 @@ pub fn main() !u8 {
             while (result_iterator.next()) |result| {
                 const test_name = result.key_ptr.*;
                 const last_result = last_test_results.value.object.get(test_name) orelse {
-                    std.debug.print("Test case {s} didn't exist in last results", .{test_name});
+                    std.debug.print("Test case {s} didn't exist in last results\n", .{test_name});
                     continue;
                 };
                 if (last_result.bool == true and result.value_ptr.bool == false) {
