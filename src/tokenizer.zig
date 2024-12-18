@@ -186,13 +186,13 @@ pub const TokenIterator = struct {
         return self.current_index < self.source.len;
     }
 
-    fn peek(self: *Self) ?u8 {
-        if (!self.is_in_bounds()) return null;
+    fn peek(self: *Self) u8 {
+        if (!self.is_in_bounds()) @panic("peeked out of bounds");
         return self.source[self.current_index];
     }
 
-    fn peek_next(self: *Self) ?u8 {
-        if (self.current_index + 1 >= self.source.len) return null;
+    fn peek_next(self: *Self) u8 {
+        if (self.current_index + 1 >= self.source.len) @panic("peeked out of bounds");
         return self.source[self.current_index + 1];
     }
 
