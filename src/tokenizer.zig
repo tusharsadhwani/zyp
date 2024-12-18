@@ -691,7 +691,9 @@ pub const TokenIterator = struct {
                 } else {
                     self.bracket_level -|= 1;
                 }
-                self.fstring_state.consume_rbrace();
+                if (self.fstring_state.state != .not_fstring) {
+                    self.fstring_state.consume_rbrace();
+                }
                 return self.make_token(.rbrace);
             },
             ':' => {
