@@ -21,3 +21,19 @@ def foo():
 x = 1E+1.imag
 x = 1E-1.real
 x = 1+2.3e+7j
+
+class C:
+\
+    x = 1
+
+
+class C:
+    x = \
+            1
+
+class C:
+  \
+    """Some
+    \
+    Docstring
+    """

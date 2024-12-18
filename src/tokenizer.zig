@@ -518,10 +518,11 @@ pub const TokenIterator = struct {
                 return error.NotAnIndent;
             return self.make_token(.whitespace);
         }
-        // For lines that are just leading whitespace and a comment, don't return indents
+        // For lines that are just leading whitespace and a slash or a comment,
+        // don't return indents
         if (self.current_index > start_index) {
             const next_char = self.peek();
-            if (next_char == '#' or next_char == '\n') return self.make_token(.whitespace);
+            if (next_char == '#' or next_char == '\\' or next_char == '\n') return self.make_token(.whitespace);
         }
 
         const new_indent = self.source[start_index..self.current_index];
@@ -610,12 +611,20 @@ pub const TokenIterator = struct {
             while (self.is_in_bounds()) {
                 const char = self.source[self.current_index];
                 if (is_whitespace(char)) {
-                    found_whitespace = true;
                     self.advance();
+                    found_whitespace = true;
                 } else if (char == '\n') {
-                    found_whitespace = true;
                     self.advance();
-                    self.next_line();
+                    found_whitespace = true;
+                    // Move to next line without creating a newline token. But,
+                    // if the previous line was all whitespace, whitespace on
+                    // the next line is still valid indentation. Avoid consuming
+                    if (self.all_whitespace_on_this_line) {
+                        self.next_line();
+                        break;
+                    } else {
+                        self.next_line();
+                    }
                 } else break;
             }
             if (!found_whitespace) {
