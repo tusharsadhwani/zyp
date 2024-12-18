@@ -587,7 +587,7 @@ pub const TokenIterator = struct {
 
         // Comment check
         if (current_char == '#') {
-            while (self.peek() != '\n' and self.peek() != '\r') self.advance();
+            while (self.is_in_bounds() and self.peek() != '\n' and self.peek() != '\r') self.advance();
             return self.make_token(.comment);
         }
 

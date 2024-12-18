@@ -39,3 +39,6 @@ class C:
 def bob(): \
          # pylint: disable=W9016
     pass
+
+
+# And the file should be able to end in a comment.
