@@ -511,19 +511,33 @@ pub const TokenIterator = struct {
     }
 
     fn indent(self: *Self) !Token {
-        const start_index = self.current_index;
-        while (self.is_in_bounds() and (self.source[self.current_index] == ' ' or self.source[self.current_index] == '\t')) self.advance();
+        var start_index = self.current_index;
+        var saw_whitespace = false;
+        var saw_tab_or_space = false;
+        while (self.is_in_bounds()) {
+            const char = self.source[self.current_index];
+            if (is_whitespace(char)) {
+                self.advance();
+                saw_whitespace = true;
+                if (char == ' ' or char == '\t') saw_tab_or_space = true;
+            } else break;
+        }
         if (!self.is_in_bounds()) {
+            // File ends with no whitespace after newline, don't return indent
             if (self.current_index == start_index)
                 return error.NotAnIndent;
+            // If reached the end of the file, don't return an indent
             return self.make_token(.whitespace);
         }
+        // If the line is preceded by just linefeeds/CR/etc.,
+        // ignore that leading whitespace entirely.
+        if (saw_whitespace and !saw_tab_or_space)
+            start_index = self.current_index;
+
         // For lines that are just leading whitespace and a slash or a comment,
         // don't return indents
-        if (self.current_index > start_index) {
-            const next_char = self.peek();
-            if (next_char == '#' or next_char == '\\' or next_char == '\n') return self.make_token(.whitespace);
-        }
+        const next_char = self.peek();
+        if (next_char == '#' or next_char == '\\' or next_char == '\n') return self.make_token(.whitespace);
 
         const new_indent = self.source[start_index..self.current_index];
         const current_indent = self.indent_stack.getLastOrNull() orelse "";

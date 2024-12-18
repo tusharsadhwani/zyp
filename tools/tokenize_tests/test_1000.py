@@ -40,5 +40,26 @@ def bob(): \
          # pylint: disable=W9016
     pass
 
+# form feed before 'def' here, don't indent
+def bar():
+    pass
+
+x = 1
+
+def bob():
+    pass
+
+x  # <- but we SHOULD output a dedent here
+
+# Now, ensure we don't put a dedent on the form feed line, but on the line below.
+def foo():
+    pass
+
+x = (
+ \
+2
+)
+
+
 
 # And the file should be able to end in a comment.

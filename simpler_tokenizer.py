@@ -21,7 +21,8 @@ def main() -> None:
     if len(source) == 0 or source[-1] != "\n":
         source = source + "\n"
     
-    sourcelines = source.splitlines(keepends=True)
+    # Same as .splitlines(keepends=True), but doesn't split on linefeeds i.e. \x0c
+    sourcelines = [line + "\n" for line in source.split("\n")]
     # For that last newline token that exists on an imaginary line sometimes
     sourcelines.append("\n")
 
