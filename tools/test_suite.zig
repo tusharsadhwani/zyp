@@ -300,7 +300,8 @@ pub fn main() !u8 {
     }
     std.debug.print("\n", .{});
 
-    if (!single_run) {
+    // Check for regressions if the regular test suite is being run
+    if (filename_arg == null) {
         // Read last results json file
         const last_result_filename = "test_suite_last_result.json";
         const regressions = blk: {
