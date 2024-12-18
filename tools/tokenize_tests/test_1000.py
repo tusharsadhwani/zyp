@@ -10,3 +10,9 @@ def foo() -> None:
 
 a = 10
 a -= 1
+
+
+def foo():
+    x = \
+        5  # <- ensure this doesn't add an indent
+    print(x)

@@ -602,12 +602,24 @@ pub const TokenIterator = struct {
         if (current_char == '\\') {
             self.advance();
             if (!self.is_in_bounds()) return error.UnexpectedEOF;
-            if (self.is_newline()) {
-                self.advance();
-                self.next_line();
-                return self.make_token(.whitespace);
+
+            // Consume all whitespace on this line and the next.
+            var found_whitespace = false;
+            while (self.is_in_bounds()) {
+                const char = self.source[self.current_index];
+                if (is_whitespace(char)) {
+                    found_whitespace = true;
+                    self.advance();
+                } else if (char == '\n') {
+                    found_whitespace = true;
+                    self.advance();
+                    self.next_line();
+                } else break;
             }
-            return error.UnexpectedCharacterAfterBackslash;
+            if (!found_whitespace) {
+                return error.UnexpectedCharacterAfterBackslash;
+            }
+            return self.make_token(.whitespace);
         }
 
         // Indent / dedent checks
