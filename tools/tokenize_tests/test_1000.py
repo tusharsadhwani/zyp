@@ -3,7 +3,10 @@
 
 
 # Comments must come before dedent, even if it looks like this:
-def foo():
+def foo() -> None:
     ...
 
 # <-- this comment comes before the dedent token
+
+a = 10
+a -= 1

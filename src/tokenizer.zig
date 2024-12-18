@@ -655,7 +655,13 @@ pub const TokenIterator = struct {
             },
             '-' => {
                 self.advance();
-                if (self.peek() == '>') self.advance();
+                // -> operator
+                if (self.peek() == '>') {
+                    self.advance();
+                    return self.make_token(.op);
+                }
+                // -= operator
+                if (self.peek() == '=') self.advance();
                 return self.make_token(.op);
             },
             ',', ';' => {
