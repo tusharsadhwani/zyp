@@ -299,8 +299,8 @@ pub const TokenIterator = struct {
             if (self.is_in_bounds() and (self.source[self.current_index] == '+' or self.source[self.current_index] == '-')) self.advance();
         }
         while (self.is_in_bounds() and std.ascii.isDigit(self.source[self.current_index])) self.advance();
-        // Complex numbers end in a `j`
-        while (self.is_in_bounds() and (self.source[self.current_index] == 'j' or self.source[self.current_index] == 'J')) self.advance();
+        // Complex numbers end in a `j`. But ensure at least 1 digit before it
+        if (self.is_in_bounds() and self.current_index > start_index and (self.source[self.current_index] == 'j' or self.source[self.current_index] == 'J')) self.advance();
         // If all of this resulted in just a dot, return an operator
         if (self.current_index - self.prev_index == 1 and self.source[self.current_index - 1] == '.') {
             // Ellipsis check
@@ -827,6 +827,7 @@ test TokenIterator {
     };
     try validate_tokens(std.testing.allocator, source, &expected_tokens);
 
+    // To ensure the tokenizer doesn't think `.e` is a number
     const dot_e_source =
         \\x = []
         \\x.extend([1])
@@ -851,6 +852,27 @@ test TokenIterator {
         .{ .endmarker, "" },
     };
     try validate_tokens(std.testing.allocator, dot_e_source, &dot_e_expected_tokens);
+
+    // To ensure the tokenizer doesn't think `.j` is a complex number
+    const dot_j_source =
+        \\''.join([1, 2])
+    ;
+    var dot_j_expected_tokens = [_]TokenTuple{
+        .{ .string, "''" },
+        .{ .op, "." },
+        .{ .name, "join" },
+        .{ .lparen, "(" },
+        .{ .lbracket, "[" },
+        .{ .number, "1" },
+        .{ .op, "," },
+        .{ .whitespace, " " },
+        .{ .number, "2" },
+        .{ .rbracket, "]" },
+        .{ .rparen, ")" },
+        .{ .newline, "" },
+        .{ .endmarker, "" },
+    };
+    try validate_tokens(std.testing.allocator, dot_j_source, &dot_j_expected_tokens);
 }
 
 test "blank source" {
