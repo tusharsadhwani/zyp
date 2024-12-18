@@ -624,6 +624,8 @@ pub const TokenIterator = struct {
                         break;
                     } else {
                         self.next_line();
+                        // Preserve this boolean, we're on the same line semantically
+                        self.all_whitespace_on_this_line = false;
                     }
                 } else break;
             }

@@ -22,18 +22,20 @@ x = 1E+1.imag
 x = 1E-1.real
 x = 1+2.3e+7j
 
+# Ensure that this one DOES add an indent
 class C:
 \
     x = 1
 
-
-class C:
-    x = \
-            1
-
+# And no indent in between here
 class C:
   \
     """Some
     \
     Docstring
     """
+
+# this is another weird case
+def bob(): \
+         # pylint: disable=W9016
+    pass
