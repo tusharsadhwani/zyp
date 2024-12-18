@@ -241,6 +241,8 @@ pub fn main() !u8 {
         else
             try allocator.dupe(u8, filename_arg.?);
 
+        errdefer allocator.free(file_name);
+
         // Check if directory
         if (!all_digits(filename_arg.?)) {
             const stat = try std.fs.cwd().statFile(file_name);
