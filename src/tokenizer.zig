@@ -563,12 +563,6 @@ pub const TokenIterator = struct {
     }
 
     pub fn next(self: *Self) !Token {
-        // Always empty the dedent counter first
-        if (self.dedent_counter > 0) {
-            self.dedent_counter -= 1;
-            return self.make_token(.dedent);
-        }
-
         // EOF checks
         if (self.current_index == self.source.len) {
             const prev_token = self.prev_token orelse return self.endmarker();
@@ -587,6 +581,19 @@ pub const TokenIterator = struct {
             return self.fstring();
 
         const current_char = self.source[self.current_index];
+
+        // Comment check
+        if (current_char == '#') {
+            while (self.peek() != '\n' and self.peek() != '\r') self.advance();
+            return self.make_token(.comment);
+        }
+
+        // Empty the dedent counter
+        if (self.dedent_counter > 0) {
+            self.dedent_counter -= 1;
+            return self.make_token(.dedent);
+        }
+
         // Newline check
         if (self.is_newline()) {
             return self.newline();
@@ -613,10 +620,6 @@ pub const TokenIterator = struct {
         }
 
         switch (current_char) {
-            '#' => {
-                while (self.peek() != '\n' and self.peek() != '\r') self.advance();
-                return self.make_token(.comment);
-            },
             ' ', '\r', '\t', '\x0b', '\x0c' => {
                 while (self.is_in_bounds() and is_whitespace(self.source[self.current_index])) self.advance();
                 return self.make_token(.whitespace);
