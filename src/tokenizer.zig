@@ -296,9 +296,11 @@ pub const TokenIterator = struct {
         // Before advancing over the 'e', ensure that at least 1 digit is between the '.' and the 'e', or that there has been at least 1 digit before the 'e'
         if (self.is_in_bounds() and self.current_index > start_index and (self.source[self.current_index] == 'e' or self.source[self.current_index] == 'E')) {
             self.advance();
-            if (self.is_in_bounds() and self.source[self.current_index] == '-') self.advance();
+            if (self.is_in_bounds() and (self.source[self.current_index] == '+' or self.source[self.current_index] == '-')) self.advance();
         }
         while (self.is_in_bounds() and std.ascii.isDigit(self.source[self.current_index])) self.advance();
+        // Complex numbers end in a `j`
+        while (self.is_in_bounds() and (self.source[self.current_index] == 'j' or self.source[self.current_index] == 'J')) self.advance();
         // If all of this resulted in just a dot, return an operator
         if (self.current_index - self.prev_index == 1 and self.source[self.current_index - 1] == '.') {
             // Ellipsis check
