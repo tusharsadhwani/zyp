@@ -106,8 +106,7 @@ raise ValueError(
 f"`escape` only permitted in {{'html', 'latex', 'latex-math'}}, \
 got {escape}"
 
-# x = f'\N{GREEK CAPITAL LETTER DELTA} \N{SNOWMAN} {x}'
-# fr'\{{\}}'
+x = f'\N{GREEK CAPITAL LETTER DELTA} \N{SNOWMAN} {x}'
 
 f"""
     WITH {f'''
@@ -137,7 +136,7 @@ f"{f'\''}"
 
 f'{1}\{{'
 f'{2} foo \{{[\}}'
-# f'\{3}'
-# rf"\{"a"}"
+f'\{3}'
+rf"\{"a"}"
 
 f"{ {x} }"

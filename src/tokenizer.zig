@@ -413,39 +413,15 @@ pub const TokenIterator = struct {
                     // Handle escapes
                     if (char == '\\') {
                         self.advance();
-                        // Now this is where we differ from CPython's tokenizer.
-                        //
-                        // Python breaks `{{` characters within fstring-middles
-                        // into two fstring-middles:
-                        //
-                        // >>> f'{{x}}'
-                        // 2,0-2,2:            FSTRING_START   f'
-                        // 2,2-2,3:            FSTRING_MIDDLE  {
-                        // 2,4-2,6:            FSTRING_MIDDLE  x}
-                        // 2,7-2,8:            FSTRING_END     '
-                        // 2,8-2,9:            NEWLINE         \n
-                        //
-                        // Which takes care of this case where the first `{` is
-                        // escaped:
-                        // >>> f'\{{x\}}'
-                        // 1,0-1,2:            FSTRING_START  f'
-                        // 1,2-1,4:            FSTRING_MIDDLE \{
-                        // 1,5-1,8:            FSTRING_MIDDLE x\}
-                        // 1,9-1,10:           FSTRING_END    '
-                        // 1,10-1,11:          NEWLINE        \n
-                        //
-                        // To ensure we don't accidentally escape the first `{`
-                        // in this `\{{` case, we need to check if the next
-                        // two characters are `{{` and if they are, we need to
-                        // jump over all three.
-                        // Same with `\}}`.
+                        // But don't escape a `\{` or `\}` in f-strings
+                        // but DO escape `\N{` in f-strings, that's for unicode characters
                         if (self.current_index + 1 < self.source.len and
-                            ((self.peek() == '{' and self.peek_next() == '{') or
-                            (self.peek() == '}' and self.peek_next() == '}')))
+                            self.peek() == 'N' and self.peek_next() == '{')
                         {
                             self.advance();
                             self.advance();
-                        } else {
+                        }
+                        if (self.is_in_bounds() and !(self.peek() == '{' or self.peek() == '}')) {
                             self.advance_check_newline();
                         }
                         continue;
