@@ -60,6 +60,7 @@ x = (
 2
 )
 
-
+# numbers with underscore
+1_000_000
 
 # And the file should be able to end in a comment.

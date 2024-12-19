@@ -287,18 +287,18 @@ pub const TokenIterator = struct {
 
     fn decimal(self: *Self) Token {
         var start_index = self.current_index;
-        while (self.is_in_bounds() and std.ascii.isDigit(self.source[self.current_index])) self.advance();
+        while (self.is_in_bounds() and (std.ascii.isDigit(self.source[self.current_index]) or self.source[self.current_index] == '_')) self.advance();
         if (self.is_in_bounds() and self.source[self.current_index] == '.') {
             self.advance();
             start_index = self.current_index;
         }
-        while (self.is_in_bounds() and std.ascii.isDigit(self.source[self.current_index])) self.advance();
+        while (self.is_in_bounds() and (std.ascii.isDigit(self.source[self.current_index]) or (self.current_index > start_index and self.source[self.current_index] == '_'))) self.advance();
         // Before advancing over the 'e', ensure that at least 1 digit is between the '.' and the 'e', or that there has been at least 1 digit before the 'e'
         if (self.is_in_bounds() and self.current_index > start_index and (self.source[self.current_index] == 'e' or self.source[self.current_index] == 'E')) {
             self.advance();
             if (self.is_in_bounds() and (self.source[self.current_index] == '+' or self.source[self.current_index] == '-')) self.advance();
         }
-        while (self.is_in_bounds() and std.ascii.isDigit(self.source[self.current_index])) self.advance();
+        while (self.is_in_bounds() and (std.ascii.isDigit(self.source[self.current_index]) or (self.current_index > start_index and self.source[self.current_index] == '_'))) self.advance();
         // Complex numbers end in a `j`. But ensure at least 1 digit before it
         if (self.is_in_bounds() and self.current_index > start_index and (self.source[self.current_index] == 'j' or self.source[self.current_index] == 'J')) self.advance();
         // If all of this resulted in just a dot, return an operator
