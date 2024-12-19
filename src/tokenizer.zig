@@ -744,6 +744,12 @@ pub const TokenIterator = struct {
                 self.advance();
                 return self.make_token(.op);
             },
+            // This guy is not used in Python3, but still exists
+            // for backwards compatibility i guess.
+            '`' => {
+                self.advance();
+                return self.make_token(.op);
+            },
             '(' => {
                 self.advance();
                 self.bracket_level += 1;
