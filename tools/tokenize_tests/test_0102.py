@@ -1,2 +1,2 @@
-Orter = 'places'
-grun = 'green'
+Örter = 'places'
+grün = 'green'

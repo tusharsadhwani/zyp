@@ -1,4 +1,5 @@
 const std = @import("std");
+const unicode_id = @import("unicode-id");
 
 pub const TokenType = enum(u8) {
     whitespace,
@@ -199,6 +200,11 @@ pub const TokenIterator = struct {
     fn advance(self: *Self) void {
         self.current_index += 1;
         self.byte_offset += 1;
+    }
+
+    fn advance_by(self: *Self, count: u32) void {
+        self.current_index += count;
+        self.byte_offset += count;
     }
 
     fn next_line(self: *Self) void {
@@ -579,6 +585,27 @@ pub const TokenIterator = struct {
         return false;
     }
 
+    fn name(self: *Self) !Token {
+        const view = std.unicode.Utf8View.initUnchecked(self.source[self.current_index..]);
+        var iter = view.iterator();
+
+        const first_code_point = iter.nextCodepoint() orelse return error.UnexpectedEOF;
+        if (!unicode_id.canStartId(first_code_point)) return error.UnexpectedCharacter;
+
+        var len = iter.i;
+        while (iter.nextCodepoint()) |codepoint| {
+            // If this doesn't match, we want to return the length until the
+            // previous codepoint
+            if (!unicode_id.canContinueId(codepoint)) {
+                break;
+            }
+            len = iter.i;
+        }
+
+        self.advance_by(@intCast(len));
+        return self.make_token(.name);
+    }
+
     pub fn next(self: *Self) !Token {
         // EOF checks
         if (self.current_index == self.source.len) {
@@ -771,8 +798,7 @@ pub const TokenIterator = struct {
                     return self.decimal();
                 }
             },
-            // TODO: unicode identifier
-            '"', '\'', 'A'...'Z', 'a'...'z', '_' => {
+            else => {
                 if ((self.current_index + 1 <= self.source.len and self.match(&.{ "\"", "'" }, .{})) or
                     (self.current_index + 2 <= self.source.len and
                     self.match(&.{ "b\"", "b'", "r\"", "r'", "f\"", "f'", "u\"", "u'" }, .{ .ignore_case = true })) or
@@ -780,19 +806,7 @@ pub const TokenIterator = struct {
                     self.match(&.{ "br\"", "br'", "rb\"", "rb'", "fr\"", "fr'", "rf\"", "rf'" }, .{ .ignore_case = true })))
                     return try self.string();
 
-                while (self.is_in_bounds() and
-                    (std.ascii.isAlphanumeric(self.source[self.current_index]) or
-                    self.source[self.current_index] == '_')) self.advance();
-
-                return self.make_token(.name);
-            },
-            else => {
-                // std.debug.print("Unsupported token at {d}:{d}: {c}\n", .{
-                //     self.line_number,
-                //     self.byte_offset,
-                //     self.source[self.current_index],
-                // });
-                return error.NotImplemented;
+                return try self.name();
             },
         }
     }
