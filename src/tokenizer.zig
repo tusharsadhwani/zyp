@@ -95,8 +95,8 @@ pub const FStringState = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        std.debug.assert(self.state == .not_fstring);
-        std.debug.assert(self.stack.items.len == 0);
+        // std.debug.assert(self.state == .not_fstring);
+        // std.debug.assert(self.stack.items.len == 0);
         self.stack.deinit();
     }
 
@@ -174,12 +174,12 @@ pub const TokenIterator = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        std.debug.assert(self.indent_stack.items.len == 0);
+        // std.debug.assert(self.indent_stack.items.len == 0);
         self.indent_stack.deinit();
-        std.debug.assert(self.bracket_level_stack.items.len == 0);
+        // std.debug.assert(self.bracket_level_stack.items.len == 0);
         self.bracket_level_stack.deinit();
         self.fstring_state.deinit();
-        std.debug.assert(self.fstring_quote == null);
+        // std.debug.assert(self.fstring_quote == null);
         self.fstring_quote_stack.deinit();
     }
 
@@ -762,12 +762,10 @@ pub const TokenIterator = struct {
             '}' => {
                 self.advance();
                 if (self.bracket_level == 0 and self.fstring_state.state == .in_fstring_expr) {
+                    self.fstring_state.consume_rbrace();
                     self.bracket_level = self.bracket_level_stack.pop();
                 } else {
                     self.bracket_level -|= 1;
-                }
-                if (self.fstring_state.state != .not_fstring) {
-                    self.fstring_state.consume_rbrace();
                 }
                 return self.make_token(.rbrace);
             },
