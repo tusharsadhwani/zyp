@@ -65,17 +65,18 @@ fn check(allocator: std.mem.Allocator, file_path: []const u8, source: []const u8
     try expected_py_tokens.append(expected_py_tokens_.value[0]);
     for (expected_py_tokens_.value[1..], 1..) |token, index| {
         const last_token = expected_py_tokens.getLast();
+
+        var current_token = token;
         // Merge consecutive FSTRING_MIDDLE tokens. it's weird cpython has it like that.
         if (std.mem.eql(u8, token.type, "FSTRING_MIDDLE") and
             std.mem.eql(u8, last_token.type, "FSTRING_MIDDLE"))
         {
             _ = expected_py_tokens.pop();
-            try expected_py_tokens.append(PyToken{
+            current_token = PyToken{
                 .type = token.type,
                 .start = last_token.start,
                 .end = token.end,
-            });
-            continue;
+            };
         }
         if (index + 1 < expected_py_tokens_.value.len) {
             // When an FSTRING_MIDDLE ends with a `{{{` like f'x{{{1}', Python eats
@@ -85,20 +86,20 @@ fn check(allocator: std.mem.Allocator, file_path: []const u8, source: []const u8
             // and the { op after it.
             // Same deal for `}}}"`
             const next_token = expected_py_tokens_.value[index + 1];
-            if ((std.mem.eql(u8, token.type, "FSTRING_MIDDLE") and std.mem.eql(u8, next_token.type, "OP")) or
-                (std.mem.eql(u8, token.type, "FSTRING_MIDDLE") and std.mem.eql(u8, next_token.type, "FSTRING_END")) and
-                token.end[0] == next_token.start[0] and
-                next_token.start[1] > token.end[1])
+            if ((std.mem.eql(u8, current_token.type, "FSTRING_MIDDLE") and std.mem.eql(u8, next_token.type, "OP")) or
+                (std.mem.eql(u8, current_token.type, "FSTRING_MIDDLE") and std.mem.eql(u8, next_token.type, "FSTRING_END")) and
+                next_token.start[0] == current_token.end[0] and
+                next_token.start[1] > current_token.end[1])
             {
                 try expected_py_tokens.append(PyToken{
-                    .type = token.type,
-                    .start = token.start,
+                    .type = current_token.type,
+                    .start = current_token.start,
                     .end = next_token.start,
                 });
                 continue;
             }
         }
-        try expected_py_tokens.append(token);
+        try expected_py_tokens.append(current_token);
     }
 
     if (expected_py_tokens.items.len != py_tokens.items.len) {

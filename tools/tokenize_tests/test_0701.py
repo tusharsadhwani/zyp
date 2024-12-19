@@ -127,7 +127,7 @@ f"{1:{f'{2}'}}"
 f'{1:{f'{2}'}}'
 f'{1:{2}d}'
 
-# f'{{\\"kind\\":\\"ConfigMap\\",\\"metadata\\":{{\\"annotations\\":{{}},\\"name\\":\\"cluster-info\\",\\"namespace\\":\\"amazon-cloudwatch\\"}}}}'
+f'{{\\"kind\\":\\"ConfigMap\\",\\"metadata\\":{{\\"annotations\\":{{}},\\"name\\":\\"cluster-info\\",\\"namespace\\":\\"amazon-cloudwatch\\"}}}}'
 
 f"""{'''
 '''}"""
@@ -139,3 +139,5 @@ f"{f'\''}"
 # f'{2} foo \{{[\}}'
 # f'\{3}'
 # rf"\{"a"}"
+
+# f"{ {x} }"
