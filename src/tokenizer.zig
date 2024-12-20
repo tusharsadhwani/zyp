@@ -164,13 +164,18 @@ pub const TokenIterator = struct {
     const Self = @This();
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8) Self {
-        return Self{
+        var self = Self{
             .source = source,
             .indent_stack = std.ArrayList([]const u8).init(allocator),
             .bracket_level_stack = std.ArrayList(u32).init(allocator),
             .fstring_state = FStringState.init(allocator),
             .fstring_quote_stack = std.ArrayList([]const u8).init(allocator),
         };
+        // If the file starts with a BOM, skip it
+        if (source.len >= 3 and std.mem.eql(u8, source[0..3], "\xef\xbb\xbf")) {
+            self.current_index = 3; // Intentionally not increasing byte_offset
+        }
+        return self;
     }
 
     pub fn deinit(self: *Self) void {

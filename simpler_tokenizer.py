@@ -9,7 +9,7 @@ def string_offset_to_byte_offset(
 ) -> tuple[int, int]:
     line, column = location
     source_line = sourcelines[line-1]
-    byte_offset = len(source_line.decode(encoding)[:column].encode(encoding))
+    byte_offset = len(source_line.decode(encoding)[:column].encode(encoding.removesuffix("-sig")))
     return (line, byte_offset)
 
 
