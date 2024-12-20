@@ -721,6 +721,11 @@ pub const TokenIterator = struct {
             },
             '<' => {
                 self.advance();
+                if (self.peek() == '>') {
+                    // Barry as FLUFL easter egg
+                    self.advance();
+                    return self.make_token(.op);
+                }
                 if (self.peek() == '<') self.advance();
                 if (self.peek() == '=') self.advance();
                 return self.make_token(.op);

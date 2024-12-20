@@ -65,4 +65,7 @@ x = (
 # numbers with underscore
 1_000_000
 
+# Barry as FLUFL
+1 <> 2
+
 # And the file should be able to end in a comment.
