@@ -292,25 +292,35 @@ pub const TokenIterator = struct {
     }
 
     fn decimal(self: *Self) Token {
-        var seen_digit = false;
-        while (self.is_in_bounds() and (std.ascii.isDigit(self.source[self.current_index]) or self.source[self.current_index] == '_')) {
-            seen_digit = true;
+        var digit_before_decimal = false;
+        if (std.ascii.isDigit(self.source[self.current_index])) {
+            digit_before_decimal = true;
             self.advance();
         }
-        if (self.is_in_bounds() and self.source[self.current_index] == '.') {
+
+        // TODO: this is too lax; 1__2 tokenizes successfully
+        while (self.is_in_bounds() and (std.ascii.isDigit(self.source[self.current_index]) or self.source[self.current_index] == '_'))
             self.advance();
-        }
-        while (self.is_in_bounds() and (std.ascii.isDigit(self.source[self.current_index]) or (seen_digit and self.source[self.current_index] == '_'))) {
+
+        if (self.is_in_bounds() and self.source[self.current_index] == '.')
             self.advance();
-        }
+
+        while (self.is_in_bounds() and (std.ascii.isDigit(self.source[self.current_index]) or (self.source[self.current_index] == '_' and std.ascii.isDigit(self.source[self.current_index - 1]))))
+            self.advance();
         // Before advancing over the 'e', ensure that there has been at least 1 digit before the 'e'
-        if (self.is_in_bounds() and seen_digit and (self.source[self.current_index] == 'e' or self.source[self.current_index] == 'E')) {
+        if (self.current_index + 1 < self.source.len and ((digit_before_decimal or std.ascii.isDigit(self.source[self.current_index - 1])) and (self.source[self.current_index] == 'e' or self.source[self.current_index] == 'E') and (std.ascii.isDigit(self.source[self.current_index + 1]) or (self.current_index + 2 < self.source.len and (self.source[self.current_index + 1] == '+' or self.source[self.current_index + 1] == '-') and std.ascii.isDigit(self.source[self.current_index + 2]))))) {
             self.advance();
-            if (self.is_in_bounds() and (self.source[self.current_index] == '+' or self.source[self.current_index] == '-')) self.advance();
+            self.advance();
+            // optional third advance not necessary as itll get advanced just below
         }
-        while (self.is_in_bounds() and (std.ascii.isDigit(self.source[self.current_index]) or (seen_digit and self.source[self.current_index] == '_'))) self.advance();
+        // TODO: this is too lax; 1__2 tokenizes successfully
+        while (self.is_in_bounds() and (std.ascii.isDigit(self.source[self.current_index]) or ((digit_before_decimal or std.ascii.isDigit(self.source[self.current_index - 1])) and self.source[self.current_index] == '_')))
+            self.advance();
+
         // Complex numbers end in a `j`. But ensure at least 1 digit before it
-        if (self.is_in_bounds() and seen_digit and (self.source[self.current_index] == 'j' or self.source[self.current_index] == 'J')) self.advance();
+        if (self.is_in_bounds() and ((digit_before_decimal or std.ascii.isDigit(self.source[self.current_index - 1])) and (self.source[self.current_index] == 'j' or self.source[self.current_index] == 'J')))
+            self.advance();
+
         // If all of this resulted in just a dot, return an operator
         if (self.current_index - self.prev_index == 1 and self.source[self.current_index - 1] == '.') {
             // Ellipsis check
