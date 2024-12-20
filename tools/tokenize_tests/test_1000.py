@@ -68,4 +68,10 @@ x = (
 # Barry as FLUFL
 1 <> 2
 
+# Ensure only ONE newline is ignored after a backslash
+def foo(): return \
+
+pass
+
+
 # And the file should be able to end in a comment.
