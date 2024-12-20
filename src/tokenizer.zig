@@ -69,7 +69,7 @@ pub const Token = struct {
 };
 
 fn is_whitespace(char: u8) bool {
-    return char == ' ' or char == '\r' or char == '\t' or char == '\x0b' or char == '\x0c';
+    return char == ' ' or char == '\t' or char == '\x0b' or char == '\x0c';
 }
 
 pub const FStringState = struct {
@@ -276,6 +276,7 @@ pub const TokenIterator = struct {
     }
 
     fn newline(self: *Self) Token {
+        if (self.is_in_bounds() and self.source[self.current_index] == '\r') self.advance();
         self.advance();
         const in_brackets = self.bracket_level > 0;
         const token_type: TokenType =
@@ -572,7 +573,7 @@ pub const TokenIterator = struct {
         // For lines that are just leading whitespace and a slash or a comment,
         // don't return indents
         const next_char = self.peek();
-        if (next_char == '#' or next_char == '\\' or next_char == '\n') return self.make_token(.whitespace);
+        if (next_char == '#' or next_char == '\\' or next_char == '\r' or next_char == '\n') return self.make_token(.whitespace);
 
         const new_indent = self.source[start_index..self.current_index];
         const current_indent = self.indent_stack.getLastOrNull() orelse "";
@@ -683,7 +684,8 @@ pub const TokenIterator = struct {
                 if (is_whitespace(char)) {
                     self.advance();
                     found_whitespace = true;
-                } else if (char == '\n') {
+                } else if (char == '\n' or (char == '\r' and self.current_index + 1 < self.source.len and self.source[self.current_index + 1] == '\n')) {
+                    if (char == '\r') self.advance();
                     self.advance();
                     found_whitespace = true;
                     // Move to next line without creating a newline token. But,
@@ -705,6 +707,17 @@ pub const TokenIterator = struct {
             return self.make_token(.whitespace);
         }
 
+        // \r on its own without a \n following, becomes an op along with the next char
+        if (current_char == '\r') {
+            self.advance();
+            if (self.is_in_bounds()) {
+                std.debug.assert(self.source[self.current_index] != '\n');
+                self.advance();
+                return self.make_token(.op);
+            }
+            return self.newline();
+        }
+
         // Indent / dedent checks
         if (self.byte_offset == 0 and self.bracket_level == 0 and self.fstring_state.state == .not_fstring) {
             const indent_token = self.indent() catch |err| switch (err) {
@@ -715,7 +728,8 @@ pub const TokenIterator = struct {
         }
 
         switch (current_char) {
-            ' ', '\r', '\t', '\x0b', '\x0c' => {
+            ' ', '\t', '\x0b', '\x0c' => {
+                self.advance();
                 while (self.is_in_bounds() and is_whitespace(self.source[self.current_index])) self.advance();
                 return self.make_token(.whitespace);
             },
