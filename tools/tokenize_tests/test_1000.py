@@ -21,6 +21,7 @@ def foo():
 x = 1E+1.imag
 x = 1E-1.real
 x = 1+2.3e+7j
+x = 1.e4 + 7.j
 
 # Ensure that this one DOES add an indent
 class C:

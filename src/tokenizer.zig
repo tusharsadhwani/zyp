@@ -292,21 +292,25 @@ pub const TokenIterator = struct {
     }
 
     fn decimal(self: *Self) Token {
-        var start_index = self.current_index;
-        while (self.is_in_bounds() and (std.ascii.isDigit(self.source[self.current_index]) or self.source[self.current_index] == '_')) self.advance();
+        var seen_digit = false;
+        while (self.is_in_bounds() and (std.ascii.isDigit(self.source[self.current_index]) or self.source[self.current_index] == '_')) {
+            seen_digit = true;
+            self.advance();
+        }
         if (self.is_in_bounds() and self.source[self.current_index] == '.') {
             self.advance();
-            start_index = self.current_index;
         }
-        while (self.is_in_bounds() and (std.ascii.isDigit(self.source[self.current_index]) or (self.current_index > start_index and self.source[self.current_index] == '_'))) self.advance();
-        // Before advancing over the 'e', ensure that at least 1 digit is between the '.' and the 'e', or that there has been at least 1 digit before the 'e'
-        if (self.is_in_bounds() and self.current_index > start_index and (self.source[self.current_index] == 'e' or self.source[self.current_index] == 'E')) {
+        while (self.is_in_bounds() and (std.ascii.isDigit(self.source[self.current_index]) or (seen_digit and self.source[self.current_index] == '_'))) {
+            self.advance();
+        }
+        // Before advancing over the 'e', ensure that there has been at least 1 digit before the 'e'
+        if (self.is_in_bounds() and seen_digit and (self.source[self.current_index] == 'e' or self.source[self.current_index] == 'E')) {
             self.advance();
             if (self.is_in_bounds() and (self.source[self.current_index] == '+' or self.source[self.current_index] == '-')) self.advance();
         }
-        while (self.is_in_bounds() and (std.ascii.isDigit(self.source[self.current_index]) or (self.current_index > start_index and self.source[self.current_index] == '_'))) self.advance();
+        while (self.is_in_bounds() and (std.ascii.isDigit(self.source[self.current_index]) or (seen_digit and self.source[self.current_index] == '_'))) self.advance();
         // Complex numbers end in a `j`. But ensure at least 1 digit before it
-        if (self.is_in_bounds() and self.current_index > start_index and (self.source[self.current_index] == 'j' or self.source[self.current_index] == 'J')) self.advance();
+        if (self.is_in_bounds() and seen_digit and (self.source[self.current_index] == 'j' or self.source[self.current_index] == 'J')) self.advance();
         // If all of this resulted in just a dot, return an operator
         if (self.current_index - self.prev_index == 1 and self.source[self.current_index - 1] == '.') {
             // Ellipsis check
@@ -406,7 +410,7 @@ pub const TokenIterator = struct {
                 const is_single_quote = self.fstring_quote.?.len == 1;
                 const start_index = self.current_index;
                 while (self.is_in_bounds()) {
-                    const char = self.source[self.current_index];
+                    const char = self.peek();
                     // For single quotes, bail on newlines
                     if (char == '\n' and is_single_quote) return error.UnterminatedString;
 
@@ -429,7 +433,7 @@ pub const TokenIterator = struct {
 
                     // Find opening / closing quote
                     if (char == '{') {
-                        if (self.peek_next() == '{') {
+                        if (self.current_index + 1 < self.source.len and self.peek_next() == '{') {
                             self.advance();
                             self.advance();
                             continue;
