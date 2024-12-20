@@ -22,27 +22,8 @@ fn to_py_token(al: std.mem.Allocator, token: tokenizer.Token) !PyToken {
 }
 
 fn check(allocator: std.mem.Allocator, file_path: []const u8, source: []const u8, debug: bool) !void {
-    var tokens = tokenizer.TokenIterator.init(allocator, source);
-    defer tokens.deinit();
-
-    var py_tokens = std.ArrayList(PyToken).init(allocator);
-    defer {
-        for (py_tokens.items) |py_token| {
-            allocator.free(py_token.type);
-        }
-        py_tokens.deinit();
-    }
-
-    while (true) {
-        const token = try tokens.next();
-        if (token.type == .whitespace) continue;
-        try py_tokens.append(try to_py_token(allocator, token));
-        if (token.type == .endmarker) break;
-    }
-
     var env_map = try std.process.getEnvMap(allocator);
     defer env_map.deinit();
-
     const result = try std.process.Child.run(.{
         .allocator = allocator,
         .argv = &.{
@@ -61,6 +42,31 @@ fn check(allocator: std.mem.Allocator, file_path: []const u8, source: []const u8
     defer expected_py_tokens_.deinit();
     var expected_py_tokens = std.ArrayList(PyToken).init(allocator);
     defer expected_py_tokens.deinit();
+
+    // Would happen for files with a broken encoding. Skip
+    if (expected_py_tokens_.value.len == 0) {
+        std.debug.print("\x1b[1;33mS\x1b[m", .{});
+        // std.debug.print(" - {s}\n", .{file_path});
+        return;
+    }
+
+    var tokens = tokenizer.TokenIterator.init(allocator, source);
+    defer tokens.deinit();
+
+    var py_tokens = std.ArrayList(PyToken).init(allocator);
+    defer {
+        for (py_tokens.items) |py_token| {
+            allocator.free(py_token.type);
+        }
+        py_tokens.deinit();
+    }
+
+    while (true) {
+        const token = try tokens.next();
+        if (token.type == .whitespace) continue;
+        try py_tokens.append(try to_py_token(allocator, token));
+        if (token.type == .endmarker) break;
+    }
 
     try expected_py_tokens.append(expected_py_tokens_.value[0]);
     for (expected_py_tokens_.value[1..], 1..) |token, index| {
