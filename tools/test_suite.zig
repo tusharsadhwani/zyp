@@ -28,6 +28,7 @@ fn check(allocator: std.mem.Allocator, file_path: []const u8, source: []const u8
         .allocator = allocator,
         .argv = &.{
             "python3",
+            "-S",
             "./simpler_tokenizer.py",
             file_path,
         },
