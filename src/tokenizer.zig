@@ -249,7 +249,18 @@ pub const TokenIterator = struct {
             if (self.weird_op_case and !tok_type.is_operator()) .op else tok_type;
 
         if (self.weird_op_case) {
-            self.all_whitespace_on_this_line = false;
+            // And we have another weird case INSIDE the weird case.
+            // For some reason when CPython accidentally captures a space
+            // as the next character, i.e. when the token is '\r ',
+            // It DOESN't see it as whitespace, so in that specific case,
+            // we shouldn't set all_whitespace_on_this_line.
+            // I think this is because CPython never expecte to have a
+            // ' ' token in it anyway so it doesn't classify it as
+            // whitespace. So it becomes non-whitespace.
+            // Removing this if stmt breaks test 1001 right now.
+            const token_str = self.source[self.prev_index..self.current_index];
+            if (std.mem.eql(u8, token_str, "\r "))
+                self.all_whitespace_on_this_line = false;
             self.weird_op_case = false;
         }
 
@@ -585,7 +596,7 @@ pub const TokenIterator = struct {
         // For lines that are just leading whitespace and a slash or a comment,
         // don't return indents
         const next_char = self.peek();
-        if (next_char == '#' or next_char == '\\' or next_char == '\r' or next_char == '\n') return self.make_token(.whitespace);
+        if (next_char == '#' or next_char == '\\' or self.is_newline()) return self.make_token(.whitespace);
 
         const new_indent = self.source[start_index..self.current_index];
         const current_indent = self.indent_stack.getLastOrNull() orelse "";
@@ -621,7 +632,6 @@ pub const TokenIterator = struct {
     fn is_newline(self: *Self) bool {
         if (self.source[self.current_index] == '\n') return true;
         if (self.source[self.current_index] == '\r' and self.current_index + 1 < self.source.len and self.source[self.current_index + 1] == '\n') {
-            self.advance();
             return true;
         }
         return false;
@@ -668,6 +678,16 @@ pub const TokenIterator = struct {
 
         var current_char = self.source[self.current_index];
 
+        // \r on its own without a \n following, it gets merged into the next token
+        if (current_char == '\r') {
+            self.advance();
+            current_char = self.source[self.current_index];
+            if (self.is_in_bounds()) {
+                if (self.source[self.current_index] != '\n')
+                    self.weird_op_case = true;
+            } else return self.newline();
+        }
+
         // Comment check
         if (current_char == '#') {
             while (self.is_in_bounds() and self.peek() != '\n' and self.peek() != '\r') self.advance();
@@ -697,7 +717,7 @@ pub const TokenIterator = struct {
                 if (is_whitespace(char)) {
                     self.advance();
                     found_whitespace = true;
-                } else if (!seen_newline and (char == '\n' or (char == '\r' and self.current_index + 1 < self.source.len and self.source[self.current_index + 1] == '\n'))) {
+                } else if (!seen_newline and self.is_newline()) {
                     if (char == '\r') self.advance();
                     self.advance();
                     found_whitespace = true;
@@ -719,16 +739,6 @@ pub const TokenIterator = struct {
                 return error.UnexpectedCharacterAfterBackslash;
             }
             return self.make_token(.whitespace);
-        }
-
-        // \r on its own without a \n following, it gets merged into the next token
-        if (current_char == '\r') {
-            self.advance();
-            current_char = self.source[self.current_index];
-            if (self.is_in_bounds()) {
-                std.debug.assert(self.source[self.current_index] != '\n');
-                self.weird_op_case = true;
-            } else return self.newline();
         }
 
         // Indent / dedent checks
