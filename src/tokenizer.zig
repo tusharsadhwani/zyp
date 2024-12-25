@@ -161,6 +161,10 @@ pub const TokenIterator = struct {
     fstring_quote_stack: std.ArrayList([]const u8),
     fstring_quote: ?[]const u8 = null,
 
+    // CPython has a weird bug where every time a bare \r is
+    // present, the next token becomes an OP. regardless of what it is.
+    weird_op_case: bool = false,
+
     const Self = @This();
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8) Self {
@@ -241,8 +245,16 @@ pub const TokenIterator = struct {
     }
 
     fn make_token(self: *Self, tok_type: TokenType) Token {
+        const token_type =
+            if (self.weird_op_case and !tok_type.is_operator()) .op else tok_type;
+
+        if (self.weird_op_case) {
+            self.all_whitespace_on_this_line = false;
+            self.weird_op_case = false;
+        }
+
         const token = Token{
-            .type = tok_type,
+            .type = token_type,
             .start_index = self.prev_index,
             .end_index = self.current_index,
             .start_line = self.prev_line_number,
@@ -654,7 +666,7 @@ pub const TokenIterator = struct {
         if (self.fstring_state.state != .not_fstring and self.fstring_state.state != .in_fstring_expr)
             return self.fstring();
 
-        const current_char = self.source[self.current_index];
+        var current_char = self.source[self.current_index];
 
         // Comment check
         if (current_char == '#') {
@@ -709,15 +721,14 @@ pub const TokenIterator = struct {
             return self.make_token(.whitespace);
         }
 
-        // \r on its own without a \n following, becomes an op along with the next char
+        // \r on its own without a \n following, it gets merged into the next token
         if (current_char == '\r') {
             self.advance();
+            current_char = self.source[self.current_index];
             if (self.is_in_bounds()) {
                 std.debug.assert(self.source[self.current_index] != '\n');
-                self.advance();
-                return self.make_token(.op);
-            }
-            return self.newline();
+                self.weird_op_case = true;
+            } else return self.newline();
         }
 
         // Indent / dedent checks
