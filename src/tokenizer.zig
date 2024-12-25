@@ -359,13 +359,13 @@ pub const TokenIterator = struct {
         self.advance();
         self.advance();
         while (self.is_in_bounds() and
-            self.source[self.current_index] == '0' or self.source[self.current_index] == '1') self.advance();
+            (self.source[self.current_index] == '0' or self.source[self.current_index] == '1' or self.source[self.current_index] == '_')) self.advance();
         if (self.is_in_bounds() and (self.source[self.current_index] == 'e' or self.source[self.current_index] == 'E')) {
             self.advance();
             if (self.is_in_bounds() and self.source[self.current_index] == '-') self.advance();
         }
         while (self.is_in_bounds() and
-            self.source[self.current_index] == '0' or self.source[self.current_index] == '1') self.advance();
+            (self.source[self.current_index] == '0' or self.source[self.current_index] == '1' or self.source[self.current_index] == '_')) self.advance();
         return self.make_token(.number);
     }
 
@@ -374,13 +374,13 @@ pub const TokenIterator = struct {
         self.advance();
         self.advance();
         while (self.is_in_bounds() and
-            self.source[self.current_index] >= '0' and self.source[self.current_index] <= '7') self.advance();
+            (self.source[self.current_index] >= '0' and self.source[self.current_index] <= '7' or self.source[self.current_index] == '_')) self.advance();
         if (self.is_in_bounds() and (self.source[self.current_index] == 'e' or self.source[self.current_index] == 'E')) {
             self.advance();
             if (self.is_in_bounds() and self.source[self.current_index] == '-') self.advance();
         }
         while (self.is_in_bounds() and
-            self.source[self.current_index] >= '0' and self.source[self.current_index] <= '7') self.advance();
+            (self.source[self.current_index] >= '0' and self.source[self.current_index] <= '7' or self.source[self.current_index] == '_')) self.advance();
         return self.make_token(.number);
     }
 
@@ -389,13 +389,13 @@ pub const TokenIterator = struct {
         self.advance();
         self.advance();
         while (self.is_in_bounds() and
-            std.ascii.isHex(self.source[self.current_index])) self.advance();
+            (std.ascii.isHex(self.source[self.current_index]) or self.source[self.current_index] == '_')) self.advance();
         if (self.is_in_bounds() and (self.source[self.current_index] == 'e' or self.source[self.current_index] == 'E')) {
             self.advance();
             if (self.is_in_bounds() and self.source[self.current_index] == '-') self.advance();
         }
         while (self.is_in_bounds() and
-            std.ascii.isHex(self.source[self.current_index])) self.advance();
+            (std.ascii.isHex(self.source[self.current_index]) or self.source[self.current_index] == '_')) self.advance();
         return self.make_token(.number);
     }
 

@@ -65,6 +65,9 @@ x = (
 # numbers with underscore
 1_000_000
 
+# another edge case
+0x7FF8_0000_0000_0001
+
 # Barry as FLUFL
 1 <> 2
 
