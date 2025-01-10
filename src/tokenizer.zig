@@ -72,6 +72,12 @@ fn is_whitespace(char: u8) bool {
     return char == ' ' or char == '\t' or char == '\x0b' or char == '\x0c';
 }
 
+fn is_alnum(char: u8) bool {
+    return ((char >= 'a' and char <= 'z') or
+        (char >= 'A' and char <= 'Z') or
+        (char >= '0' and char <= '9'));
+}
+
 pub const FStringState = struct {
     const State = enum(u8) {
         not_fstring,
@@ -164,6 +170,7 @@ pub const TokenIterator = struct {
     // CPython has a weird bug where every time a bare \r is
     // present, the next token becomes an OP. regardless of what it is.
     weird_op_case: bool = false,
+    weird_op_case_nl: bool = false,
 
     const Self = @This();
 
@@ -246,7 +253,12 @@ pub const TokenIterator = struct {
 
     fn make_token(self: *Self, tok_type: TokenType) Token {
         const token_type =
-            if (self.weird_op_case and !tok_type.is_operator()) .op else tok_type;
+            if (self.weird_op_case and
+            !tok_type.is_operator() and
+            tok_type != .number and tok_type != .string)
+            .op
+        else
+            tok_type;
 
         if (self.weird_op_case) {
             // And we have another weird case INSIDE the weird case.
@@ -282,6 +294,7 @@ pub const TokenIterator = struct {
         self.prev_index = self.current_index;
         self.prev_line_number = self.line_number;
         self.prev_byte_offset = self.byte_offset;
+        self.weird_op_case = false;
         return token;
     }
 
@@ -301,14 +314,17 @@ pub const TokenIterator = struct {
     fn newline(self: *Self) Token {
         if (self.is_in_bounds() and self.source[self.current_index] == '\r') self.advance();
         self.advance();
-        const in_brackets = self.bracket_level > 0;
         const token_type: TokenType =
-            if (in_brackets or self.fstring_state.state == .in_fstring_expr or self.all_whitespace_on_this_line)
+            if (self.weird_op_case_nl or
+            self.bracket_level > 0 or
+            self.fstring_state.state == .in_fstring_expr or
+            self.all_whitespace_on_this_line)
             .nl
         else
             .newline;
 
         const token = self.make_token(token_type);
+        self.weird_op_case_nl = false;
         return token;
     }
 
@@ -539,6 +555,11 @@ pub const TokenIterator = struct {
 
     fn string(self: *Self) !Token {
         const prefix, const quote = try self.string_prefix_and_quotes();
+        if (prefix.len > 0 and self.weird_op_case) {
+            self.advance();
+            return self.make_token(.op);
+        }
+
         for (prefix) |char| if (char == 'f' or char == 'F') return self.fstring();
 
         for (0..prefix.len) |_| self.advance();
@@ -638,17 +659,21 @@ pub const TokenIterator = struct {
     }
 
     fn name(self: *Self) !Token {
+        if (self.weird_op_case) {
+            self.advance();
+            return self.make_token(.name);
+        }
+
+        // According to PEP 3131, any non-ascii character is valid in a NAME token.
+        // But if we see any non-identifier ASCII character we should stop.
         const view = std.unicode.Utf8View.initUnchecked(self.source[self.current_index..]);
         var iter = view.iterator();
-
-        const first_code_point = iter.nextCodepoint() orelse return error.UnexpectedEOF;
-        if (!unicode_id.canStartId(first_code_point)) return error.UnexpectedCharacter;
 
         var len = iter.i;
         while (iter.nextCodepoint()) |codepoint| {
             // If this doesn't match, we want to return the length until the
             // previous codepoint
-            if (!unicode_id.canContinueId(codepoint)) {
+            if (codepoint < 128 and !is_alnum(@intCast(codepoint)) and codepoint != '_') {
                 break;
             }
             len = iter.i;
@@ -683,13 +708,23 @@ pub const TokenIterator = struct {
             self.advance();
             current_char = self.source[self.current_index];
             if (self.is_in_bounds()) {
-                if (self.source[self.current_index] != '\n')
+                if (self.source[self.current_index] != '\n') {
                     self.weird_op_case = true;
+                    if (self.prev_token) |prev_token| {
+                        if (prev_token.type == .comment)
+                            self.weird_op_case_nl = true;
+                    }
+                }
             } else return self.newline();
         }
 
         // Comment check
         if (current_char == '#') {
+            if (self.weird_op_case) {
+                self.advance();
+                return self.make_token(.comment);
+            }
+
             while (self.is_in_bounds() and self.peek() != '\n' and self.peek() != '\r') self.advance();
             return self.make_token(.comment);
         }
