@@ -23,10 +23,7 @@ pub fn main() !u8 {
         defer token_iterator.deinit();
         while (true) {
             const token = try token_iterator.next();
-            if (token.type != .whitespace) std.debug.print(
-                "{s} {any}\n",
-                .{ token.to_byte_slice(source), token },
-            );
+            std.debug.print("{s} {any}\n", .{ token.to_byte_slice(source), token });
             if (token.type == .endmarker) break;
         }
     } else {

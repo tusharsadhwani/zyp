@@ -721,18 +721,20 @@ pub const TokenIterator = struct {
         var current_char = self.source[self.current_index];
 
         // \r on its own without a \n following, it gets merged into the next token
+        // It's probably a bug: https://github.com/python/cpython/issues/128233
         if (current_char == '\r') {
             self.advance();
+            if (!self.is_in_bounds())
+                return self.newline();
+
             current_char = self.source[self.current_index];
-            if (self.is_in_bounds()) {
-                if (self.source[self.current_index] != '\n') {
-                    self.weird_op_case = true;
-                    if (self.prev_token) |prev_token| {
-                        if (prev_token.type == .comment)
-                            self.weird_op_case_nl = true;
-                    }
+            if (current_char != '\n') {
+                self.weird_op_case = true;
+                if (self.prev_token) |prev_token| {
+                    if (prev_token.type == .comment)
+                        self.weird_op_case_nl = true;
                 }
-            } else return self.newline();
+            }
         }
 
         // Comment check
@@ -803,8 +805,7 @@ pub const TokenIterator = struct {
         }
 
         switch (current_char) {
-            ' ', '\t', '\x0b', '\x0c' => {
-                self.advance();
+            ' ', '\r', '\t', '\x0b', '\x0c' => {
                 while (self.is_in_bounds() and is_whitespace(self.source[self.current_index])) self.advance();
                 return self.make_token(.whitespace);
             },
