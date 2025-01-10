@@ -145,6 +145,8 @@ pub const FStringState = struct {
     }
 };
 
+const PrefixQuote = struct { []const u8, []const u8 };
+
 pub const TokenIterator = struct {
     source: []const u8,
     current_index: u32 = 0,
@@ -164,7 +166,9 @@ pub const TokenIterator = struct {
 
     // f-string state
     fstring_state: FStringState,
-    fstring_quote_stack: std.ArrayList([]const u8),
+
+    fstring_prefix_quote_stack: std.ArrayList(PrefixQuote),
+    fstring_prefix: ?[]const u8 = null,
     fstring_quote: ?[]const u8 = null,
 
     // CPython has a weird bug where every time a bare \r is
@@ -180,7 +184,7 @@ pub const TokenIterator = struct {
             .indent_stack = std.ArrayList([]const u8).init(allocator),
             .bracket_level_stack = std.ArrayList(u32).init(allocator),
             .fstring_state = FStringState.init(allocator),
-            .fstring_quote_stack = std.ArrayList([]const u8).init(allocator),
+            .fstring_prefix_quote_stack = std.ArrayList(PrefixQuote).init(allocator),
         };
         // If the file starts with a BOM, skip it
         if (source.len >= 3 and std.mem.eql(u8, source[0..3], "\xef\xbb\xbf")) {
@@ -195,8 +199,9 @@ pub const TokenIterator = struct {
         // std.debug.assert(self.bracket_level_stack.items.len == 0);
         self.bracket_level_stack.deinit();
         self.fstring_state.deinit();
+        // std.debug.assert(self.fstring_prefix == null);
         // std.debug.assert(self.fstring_quote == null);
-        self.fstring_quote_stack.deinit();
+        self.fstring_prefix_quote_stack.deinit();
     }
 
     fn is_in_bounds(self: *Self) bool {
@@ -298,17 +303,27 @@ pub const TokenIterator = struct {
         return token;
     }
 
-    fn push_fstring_quote(self: *Self, quote: []const u8) !void {
-        if (self.fstring_quote) |fstring_quote| {
-            try self.fstring_quote_stack.append(fstring_quote);
+    fn push_fstring_prefix_quote(self: *Self, prefix: []const u8, quote: []const u8) !void {
+        if (self.fstring_prefix) |fstring_prefix| {
+            try self.fstring_prefix_quote_stack.append(.{ fstring_prefix, self.fstring_quote.? });
         }
+        self.fstring_prefix = prefix;
         self.fstring_quote = quote;
     }
 
     fn pop_fstring_quote(self: *Self) !void {
-        if (self.fstring_quote == null)
+        if (self.fstring_prefix == null)
             return error.Underflow;
-        self.fstring_quote = self.fstring_quote_stack.popOrNull();
+
+        const _prefix_quote = self.fstring_prefix_quote_stack.popOrNull();
+        if (_prefix_quote) |prefix_quote| {
+            // TODO: can i do tuple unpacking here?
+            self.fstring_prefix = prefix_quote[0];
+            self.fstring_quote = prefix_quote[1];
+        } else {
+            self.fstring_prefix = null;
+            self.fstring_quote = null;
+        }
     }
 
     fn newline(self: *Self) Token {
@@ -455,7 +470,7 @@ pub const TokenIterator = struct {
         switch (self.fstring_state.state) {
             .not_fstring, .in_fstring_expr => {
                 const prefix, const quote = try self.string_prefix_and_quotes();
-                try self.push_fstring_quote(quote);
+                try self.push_fstring_prefix_quote(prefix, quote);
                 for (0..prefix.len) |_| self.advance();
                 for (0..quote.len) |_| self.advance();
                 try self.fstring_state.enter_fstring();
@@ -474,7 +489,9 @@ pub const TokenIterator = struct {
                         self.advance();
                         // But don't escape a `\{` or `\}` in f-strings
                         // but DO escape `\N{` in f-strings, that's for unicode characters
-                        if (self.current_index + 1 < self.source.len and
+                        // but DON'T escape `\N{` in raw f-strings.
+                        if (std.ascii.indexOfIgnoreCase(self.fstring_prefix.?, "r") == null and
+                            self.current_index + 1 < self.source.len and
                             self.peek() == 'N' and self.peek_next() == '{')
                         {
                             self.advance();

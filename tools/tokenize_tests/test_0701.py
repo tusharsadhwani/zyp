@@ -107,6 +107,7 @@ f"`escape` only permitted in {{'html', 'latex', 'latex-math'}}, \
 got {escape}"
 
 x = f'\N{GREEK CAPITAL LETTER DELTA} \N{SNOWMAN} {x}'
+rf"\N{42}"
 
 f"""
     WITH {f'''
