@@ -1,6 +1,7 @@
 const std = @import("std");
 
 pub const tokenizer = @import("tokenizer.zig");
+pub const Parser = @import("parser.zig").Parser;
 
 fn read_file(allocator: std.mem.Allocator, filepath: []const u8) ![]u8 {
     return try std.fs.cwd().readFileAlloc(allocator, filepath, std.math.maxInt(u32));
@@ -21,11 +22,13 @@ pub fn main() !u8 {
 
         var token_iterator = tokenizer.TokenIterator.init(allocator, source);
         defer token_iterator.deinit();
-        while (true) {
-            const token = try token_iterator.next();
-            std.debug.print("{s} {any}\n", .{ token.to_byte_slice(source), token });
-            if (token.type == .endmarker) break;
-        }
+
+        // const tree = try parser.parse(std.heap.page_allocator, source, &token_iterator);
+        var parser = try Parser.init(std.heap.page_allocator, source, &token_iterator);
+        // defer parser.deinit();
+
+        const tree = try parser.parse();
+        _ = tree;
     } else {
         std.debug.print("Usage: zyp <filepath.py>\n", .{});
         return 1;

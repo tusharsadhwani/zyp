@@ -18,6 +18,7 @@ pub const TokenType = enum(u8) {
     lbrace,
     rbrace,
     colon,
+    comma,
     op,
     _op_end,
 
@@ -854,7 +855,11 @@ pub const TokenIterator = struct {
                 if (self.peek() == '=') self.advance();
                 return self.make_token(.op);
             },
-            ',', ';' => {
+            ',' => {
+                self.advance();
+                return self.make_token(.comma);
+            },
+            ';' => {
                 self.advance();
                 return self.make_token(.op);
             },
@@ -940,8 +945,7 @@ pub const TokenIterator = struct {
     }
 };
 
-const TokenTuple = struct { TokenType, []const u8 };
-fn validate_tokens(allocator: std.mem.Allocator, source: []const u8, expected_tokens: []TokenTuple) !void {
+pub fn tokenize(allocator: std.mem.Allocator, source: []const u8) ![]Token {
     var token_iterator = TokenIterator.init(allocator, source);
     defer token_iterator.deinit();
     var token_list = std.ArrayList(Token).init(std.testing.allocator);
@@ -952,10 +956,19 @@ fn validate_tokens(allocator: std.mem.Allocator, source: []const u8, expected_to
         try token_list.append(token);
         if (token.type == .endmarker) break;
     }
-    // for (token_list.items) |token| {
+
+    return token_list.toOwnedSlice();
+}
+
+const TokenTuple = struct { TokenType, []const u8 };
+fn validate_tokens(allocator: std.mem.Allocator, source: []const u8, expected_tokens: []TokenTuple) !void {
+    const tokens = try tokenize(allocator, source);
+    defer allocator.free(tokens);
+
+    // for (tokens) |token| {
     //     if (token.type != .whitespace) std.debug.print("{s} {any}\n", .{ token.to_byte_slice(source), token });
     // }
-    for (token_list.items, expected_tokens) |token, expected| {
+    for (tokens, expected_tokens) |token, expected| {
         const expected_type, const expected_value = expected;
         try std.testing.expectEqual(expected_type, token.type);
         try std.testing.expectEqualStrings(expected_value, token.to_byte_slice(source));
@@ -1020,7 +1033,7 @@ test TokenIterator {
         .{ .lparen, "(" },
         .{ .lbracket, "[" },
         .{ .number, "1" },
-        .{ .op, "," },
+        .{ .comma, "," },
         .{ .whitespace, " " },
         .{ .number, "2" },
         .{ .rbracket, "]" },
