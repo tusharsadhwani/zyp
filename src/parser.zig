@@ -99,7 +99,7 @@ pub const Parser = struct {
         };
     }
 
-    fn parse_call(self: *Self) !*node.Expression {
+    fn parse_call(self: *Self) !node.Expression {
         const value = try self.parse_expression();
         if (self.peek().type != .lparen)
             return value;
@@ -108,10 +108,10 @@ pub const Parser = struct {
         // Parse arguments
         // Edge case: no args
         if (self.peek().type == .rparen) {
-            return try new(self.al, node.Expression{ .call = .{ .value = value, .arguments = &.{} } });
+            return node.Expression{ .call = try new(self.al, node.Call{ .value = value, .arguments = &.{} }) };
         }
 
-        var args = std.ArrayList(*node.Expression).init(self.al);
+        var args = std.ArrayList(node.Expression).init(self.al);
         while (true) {
             const arg = try self.parse_expression();
             try args.append(arg);
@@ -127,17 +127,18 @@ pub const Parser = struct {
                 break;
             }
         }
-        return try new(self.al, node.Expression{ .call = .{
+
+        return node.Expression{ .call = try new(self.al, node.Call{
             .value = value,
             .arguments = try args.toOwnedSlice(),
-        } });
+        }) };
     }
 
-    fn parse_expression(self: *Self) !*node.Expression {
+    fn parse_expression(self: *Self) !node.Expression {
         const token = try self.next();
         switch (token.type) {
             .name => {
-                return try new(self.al, node.Expression{ .name = token.to_byte_slice(self.source) });
+                return node.Expression{ .name = token.to_byte_slice(self.source) };
             },
             else => return error.NotImplemented,
         }
@@ -168,18 +169,14 @@ test parse {
         .body = &.{
             node.Statement{
                 .expr_stmt = .{
-                    .value = try new(al, node.Expression{
-                        .call = .{
-                            .value = try new(al, node.Expression{
-                                .name = "print",
-                            }),
+                    .value = node.Expression{
+                        .call = try new(al, node.Call{
+                            .value = node.Expression{ .name = "print" },
                             .arguments = &.{
-                                try new(al, node.Expression{
-                                    .name = "x",
-                                }),
+                                node.Expression{ .name = "x" },
                             },
-                        },
-                    }),
+                        }),
+                    },
                 },
             },
         },
