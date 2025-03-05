@@ -11,6 +11,8 @@ const PyToken = struct {
 fn to_py_token(al: std.mem.Allocator, token: tokenizer.Token) !PyToken {
     const py_token_type = try if (token.type.is_operator())
         al.dupe(u8, "OP")
+    else if (token.type.is_number())
+        al.dupe(u8, "NUMBER")
     else
         std.ascii.allocUpperString(al, @tagName(token.type));
 

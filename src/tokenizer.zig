@@ -23,7 +23,16 @@ pub const TokenType = enum(u8) {
     _op_end,
 
     name,
-    number,
+
+    _number_start,
+    binary,
+    octal,
+    decimal,
+    hexadecimal,
+    float,
+    complex,
+    _number_end,
+
     string,
     fstring_start,
     fstring_middle,
@@ -36,6 +45,11 @@ pub const TokenType = enum(u8) {
     pub fn is_operator(self: Self) bool {
         const token_int: u8 = @intFromEnum(self);
         return token_int > @intFromEnum(Self._op_start) and token_int < @intFromEnum(Self._op_end);
+    }
+
+    pub fn is_number(self: Self) bool {
+        const token_int: u8 = @intFromEnum(self);
+        return token_int > @intFromEnum(Self._number_start) and token_int < @intFromEnum(Self._number_end);
     }
 };
 
@@ -261,7 +275,7 @@ pub const TokenIterator = struct {
         const token_type =
             if (self.weird_op_case and
             !tok_type.is_operator() and
-            tok_type != .number and tok_type != .string)
+            !tok_type.is_number() and tok_type != .string)
             .op
         else
             tok_type;
@@ -353,6 +367,8 @@ pub const TokenIterator = struct {
     }
 
     fn decimal(self: *Self) Token {
+        var is_float = false;
+        var is_complex = false;
         var digit_before_decimal = false;
         if (std.ascii.isDigit(self.source[self.current_index])) {
             digit_before_decimal = true;
@@ -363,13 +379,16 @@ pub const TokenIterator = struct {
         while (self.is_in_bounds() and (std.ascii.isDigit(self.source[self.current_index]) or self.source[self.current_index] == '_'))
             self.advance();
 
-        if (self.is_in_bounds() and self.source[self.current_index] == '.')
+        if (self.is_in_bounds() and self.source[self.current_index] == '.') {
+            is_float = true;
             self.advance();
+        }
 
         while (self.is_in_bounds() and (std.ascii.isDigit(self.source[self.current_index]) or (self.source[self.current_index] == '_' and std.ascii.isDigit(self.source[self.current_index - 1]))))
             self.advance();
         // Before advancing over the 'e', ensure that there has been at least 1 digit before the 'e'
         if (self.current_index + 1 < self.source.len and ((digit_before_decimal or std.ascii.isDigit(self.source[self.current_index - 1])) and (self.source[self.current_index] == 'e' or self.source[self.current_index] == 'E') and (std.ascii.isDigit(self.source[self.current_index + 1]) or (self.current_index + 2 < self.source.len and (self.source[self.current_index + 1] == '+' or self.source[self.current_index + 1] == '-') and std.ascii.isDigit(self.source[self.current_index + 2]))))) {
+            is_float = true;
             self.advance();
             self.advance();
             // optional third advance not necessary as itll get advanced just below
@@ -379,8 +398,10 @@ pub const TokenIterator = struct {
             self.advance();
 
         // Complex numbers end in a `j`. But ensure at least 1 digit before it
-        if (self.is_in_bounds() and ((digit_before_decimal or std.ascii.isDigit(self.source[self.current_index - 1])) and (self.source[self.current_index] == 'j' or self.source[self.current_index] == 'J')))
+        if (self.is_in_bounds() and ((digit_before_decimal or std.ascii.isDigit(self.source[self.current_index - 1])) and (self.source[self.current_index] == 'j' or self.source[self.current_index] == 'J'))) {
+            is_complex = true;
             self.advance();
+        }
 
         // If all of this resulted in just a dot, return an operator
         if (self.current_index - self.prev_index == 1 and self.source[self.current_index - 1] == '.') {
@@ -394,7 +415,7 @@ pub const TokenIterator = struct {
             return self.make_token(.op);
         }
 
-        return self.make_token(.number);
+        return if (is_complex) self.make_token(.complex) else if (is_float) self.make_token(.float) else self.make_token(.decimal);
     }
 
     fn binary(self: *Self) Token {
@@ -403,13 +424,7 @@ pub const TokenIterator = struct {
         self.advance();
         while (self.is_in_bounds() and
             (self.source[self.current_index] == '0' or self.source[self.current_index] == '1' or self.source[self.current_index] == '_')) self.advance();
-        if (self.is_in_bounds() and (self.source[self.current_index] == 'e' or self.source[self.current_index] == 'E')) {
-            self.advance();
-            if (self.is_in_bounds() and self.source[self.current_index] == '-') self.advance();
-        }
-        while (self.is_in_bounds() and
-            (self.source[self.current_index] == '0' or self.source[self.current_index] == '1' or self.source[self.current_index] == '_')) self.advance();
-        return self.make_token(.number);
+        return self.make_token(.binary);
     }
 
     fn octal(self: *Self) Token {
@@ -418,13 +433,7 @@ pub const TokenIterator = struct {
         self.advance();
         while (self.is_in_bounds() and
             (self.source[self.current_index] >= '0' and self.source[self.current_index] <= '7' or self.source[self.current_index] == '_')) self.advance();
-        if (self.is_in_bounds() and (self.source[self.current_index] == 'e' or self.source[self.current_index] == 'E')) {
-            self.advance();
-            if (self.is_in_bounds() and self.source[self.current_index] == '-') self.advance();
-        }
-        while (self.is_in_bounds() and
-            (self.source[self.current_index] >= '0' and self.source[self.current_index] <= '7' or self.source[self.current_index] == '_')) self.advance();
-        return self.make_token(.number);
+        return self.make_token(.octal);
     }
 
     fn hexadecimal(self: *Self) Token {
@@ -433,13 +442,7 @@ pub const TokenIterator = struct {
         self.advance();
         while (self.is_in_bounds() and
             (std.ascii.isHex(self.source[self.current_index]) or self.source[self.current_index] == '_')) self.advance();
-        if (self.is_in_bounds() and (self.source[self.current_index] == 'e' or self.source[self.current_index] == 'E')) {
-            self.advance();
-            if (self.is_in_bounds() and self.source[self.current_index] == '-') self.advance();
-        }
-        while (self.is_in_bounds() and
-            (std.ascii.isHex(self.source[self.current_index]) or self.source[self.current_index] == '_')) self.advance();
-        return self.make_token(.number);
+        return self.make_token(.hexadecimal);
     }
 
     fn find_opening_quote(self: *Self) usize {
@@ -985,7 +988,7 @@ test TokenIterator {
         .{ .whitespace, " " },
         .{ .op, "=" },
         .{ .whitespace, " " },
-        .{ .number, "1" },
+        .{ .decimal, "1" },
         .{ .newline, "\n" },
         .{ .name, "print" },
         .{ .lparen, "(" },
@@ -1014,7 +1017,7 @@ test TokenIterator {
         .{ .name, "extend" },
         .{ .lparen, "(" },
         .{ .lbracket, "[" },
-        .{ .number, "1" },
+        .{ .decimal, "1" },
         .{ .rbracket, "]" },
         .{ .rparen, ")" },
         .{ .newline, "" },
@@ -1032,10 +1035,10 @@ test TokenIterator {
         .{ .name, "join" },
         .{ .lparen, "(" },
         .{ .lbracket, "[" },
-        .{ .number, "1" },
+        .{ .decimal, "1" },
         .{ .comma, "," },
         .{ .whitespace, " " },
-        .{ .number, "2" },
+        .{ .decimal, "2" },
         .{ .rbracket, "]" },
         .{ .rparen, ")" },
         .{ .newline, "" },
@@ -1066,7 +1069,7 @@ test "source with no newline at the end" {
         .{ .whitespace, " " },
         .{ .op, "=" },
         .{ .whitespace, " " },
-        .{ .number, "1" },
+        .{ .decimal, "1" },
         .{ .newline, "" },
         .{ .endmarker, "" },
     };

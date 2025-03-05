@@ -24,11 +24,9 @@ pub fn main() !u8 {
         defer token_iterator.deinit();
 
         // const tree = try parser.parse(std.heap.page_allocator, source, &token_iterator);
-        var parser = try Parser.init(std.heap.page_allocator, source, &token_iterator);
-        // defer parser.deinit();
-
-        const tree = try parser.parse();
-        _ = tree;
+        var result = try Parser.init(std.heap.page_allocator, source, &token_iterator);
+        defer result.deinit();
+        std.debug.print("{any}\n", .{result.tree});
     } else {
         std.debug.print("Usage: zyp <filepath.py>\n", .{});
         return 1;

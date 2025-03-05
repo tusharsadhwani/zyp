@@ -6,6 +6,17 @@ const TokenType = tokenizer.TokenType;
 const TokenIterator = tokenizer.TokenIterator;
 const node = @import("nodes.zig");
 
+pub const ParseResult = struct {
+    arena: *std.heap.ArenaAllocator,
+    tree: *node.Module,
+
+    pub fn deinit(self: @This()) void {
+        const allocator = self.arena.child_allocator;
+        self.arena.deinit();
+        allocator.destroy(self.arena);
+    }
+};
+
 fn new(al: std.mem.Allocator, obj: anytype) !*@TypeOf(obj) {
     const heap_obj = try al.create(@TypeOf(obj));
     heap_obj.* = obj;
@@ -13,7 +24,6 @@ fn new(al: std.mem.Allocator, obj: anytype) !*@TypeOf(obj) {
 }
 
 pub const Parser = struct {
-    arena: *std.heap.ArenaAllocator,
     al: std.mem.Allocator,
 
     source: []const u8,
@@ -22,26 +32,20 @@ pub const Parser = struct {
 
     const Self = @This();
 
-    pub fn init(al: std.mem.Allocator, source: []const u8, token_iterator: *TokenIterator) std.mem.Allocator.Error!Self {
+    pub fn init(al: std.mem.Allocator, source: []const u8, token_iterator: *TokenIterator) !ParseResult {
         var arena = try al.create(std.heap.ArenaAllocator);
-        // TODO: don't drop the arena when the parser deinits, put the arena
-        // on the ParseResult that we return from Parser.parse().
         arena.* = std.heap.ArenaAllocator.init(al);
 
         const first_token = token_iterator.next() catch unreachable;
         const arena_al = arena.allocator();
-        const self = Self{
-            .arena = arena,
+        var self = Self{
             .al = arena_al,
             .source = source,
             .token_iterator = token_iterator,
             .current_token = first_token,
         };
-        return self;
-    }
-
-    fn deinit(self: *Self) void {
-        self.arena.deinit();
+        const module = try self.parse();
+        return ParseResult{ .arena = arena, .tree = module };
     }
 
     fn advance(self: *Self) !void {
@@ -140,20 +144,29 @@ pub const Parser = struct {
             .name => {
                 return node.Expression{ .name = token.to_byte_slice(self.source) };
             },
-            else => return error.NotImplemented,
+            // .string => return node.Expression{ .constant = .{ .value = self.parse_string(token) } },
+            else => {
+                if (token.type.is_number()) {
+                    return node.Expression{ .constant = try self.parse_number(token) };
+                }
+                return error.NotImplemented;
+            },
+        }
+    }
+
+    fn parse_number(self: *Self, token: Token) !node.Constant { // TODO: remove '!'
+        switch (token.type) {
+            .decimal => return node.Constant{ .integer = std.fmt.parseInt(u64, token.to_byte_slice(self.source), 10) catch unreachable },
+            .binary => return node.Constant{ .integer = std.fmt.parseInt(u64, token.to_byte_slice(self.source), 2) catch unreachable },
+            .octal => return node.Constant{ .integer = std.fmt.parseInt(u64, token.to_byte_slice(self.source), 8) catch unreachable },
+            .hexadecimal => return node.Constant{ .integer = std.fmt.parseInt(u64, token.to_byte_slice(self.source), 16) catch unreachable },
+            .float => return node.Constant{ .float = std.fmt.parseFloat(f64, token.to_byte_slice(self.source)) catch unreachable },
+            else => return error.NotImplemented, // TODO: complex
         }
     }
 };
 
-pub fn parse(al: std.mem.Allocator, source: []const u8, token_iterator: *TokenIterator) !*node.Module {
-    var parser = try Parser.init(al, source, token_iterator);
-    // defer parser.deinit();
-
-    const tree = try parser.parse();
-    return tree;
-}
-
-test parse {
+test Parser {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
@@ -161,10 +174,12 @@ test parse {
 
     const source =
         \\print(x)
+        \\print(42)
     ;
 
     var token_iterator = TokenIterator.init(al, source);
-    const tree = try parse(al, source, &token_iterator);
+    const result = try Parser.init(al, source, &token_iterator);
+    defer result.deinit();
     try std.testing.expectEqualDeep(node.Module{
         .body = &.{
             node.Statement{
@@ -179,6 +194,18 @@ test parse {
                     },
                 },
             },
+            node.Statement{
+                .expr_stmt = .{
+                    .value = node.Expression{
+                        .call = try new(al, node.Call{
+                            .value = node.Expression{ .name = "print" },
+                            .arguments = &.{
+                                node.Expression{ .constant = node.Constant{ .integer = 42 } },
+                            },
+                        }),
+                    },
+                },
+            },
         },
-    }, tree.*);
+    }, result.tree.*);
 }
